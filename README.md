@@ -181,12 +181,6 @@ The transparent retrieval evaluation is intentionally small and prototype-scoped
 
 No external deployment or GitHub push has been performed. Recommended architecture: frontend on Vercel; FastAPI on Railway; PostgreSQL + pgvector on Neon/Supabase/Railway; object storage for raw snapshots. Run the documented tests, set environment variables, execute a bounded seed, then deploy services separately. The public UI must disclose the exact processed scope.
 
-## Portfolio narrative
-
-**CV bullet:** Engineered a procurement data-modernization workbench integrating 600 verified public World Bank notice and award records with linked project metadata through Python/SQL ETL; implemented schema validation, deduplication signals, quarantine, lineage, feature engineering, and citation-grounded vector retrieval.
-
-**Case study:** I built a separate procurement data platform to explore how heterogeneous public records can become consistent, auditable evidence. The workbench preserves raw source payloads, standardizes and validates records, links notices and awards through World Bank project IDs, creates project-level features, and provides deterministic retrieval with official citations and transparent abstention. It is deliberately modest about scope: 600 processed procurement records, no fraud inference, and no fabricated AI claims.
-
 ## Production roadmap
 
 1. Complete historical page iteration with checkpoint resume and scheduled incrementals.
