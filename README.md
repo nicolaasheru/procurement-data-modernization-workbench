@@ -1,6 +1,6 @@
 # Procurement Data Modernization Workbench
 
-An independent, recruiter-testable prototype that migrates public World Bank procurement notices, contract awards, and project metadata into auditable raw, standardized, curated, feature, and retrieval layers.
+An independent, testable prototype that migrates public World Bank procurement notices, contract awards, and project metadata into auditable raw, standardized, curated, feature, and retrieval layers.
 
 > **Independent prototype using public World Bank data. Not affiliated with or endorsed by the World Bank Group.** Source records and official pages remain authoritative.
 
