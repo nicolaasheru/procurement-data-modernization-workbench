@@ -151,7 +151,7 @@ EMBEDDING_MODEL=versioned-model-name
 
 No secrets belong in source control.
 
-## Recruiter demo
+## Demo
 
 The README and visible navigation intentionally use the same five views:
 
