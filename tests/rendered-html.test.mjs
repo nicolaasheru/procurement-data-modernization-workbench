@@ -39,6 +39,8 @@ test("renders development preview metadata", async () => {
   assert.match(source, /Executable SQL evidence/i);
   assert.match(source, /Production translation/i);
   assert.match(source, /UAT and release evidence/i);
+  assert.match(source, /Every exception ends in an accountable decision/i);
+  assert.match(source, /Append-only history/i);
   assert.match(source, /Guide me through it/i);
   assert.match(source, /Guided walkthrough/i);
   assert.match(source, /Can he engineer the migration/i);

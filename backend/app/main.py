@@ -3,7 +3,7 @@ import sqlite3
 from typing import Optional
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
-from .pipeline import DB, CONTROLS, connect, ingest_sample, search
+from .pipeline import DB, CONTROLS, connect, ingest_sample, search, create_review_case, update_review_case, get_review_case
 
 app=FastAPI(title="Procurement Data Modernization Workbench API",version="0.1.0")
 class SearchRequest(BaseModel):
@@ -11,6 +11,18 @@ class SearchRequest(BaseModel):
     country: Optional[str]=None
     project_id: Optional[str]=None
     limit: int=Field(default=8,ge=1,le=25)
+class ReviewCreate(BaseModel):
+    validation_result_id:int
+    actor:str=Field(min_length=2,max_length=100)
+    assigned_to:Optional[str]=Field(default=None,max_length=100)
+    priority:str=Field(default="medium",pattern="^(low|medium|high|critical)$")
+class ReviewUpdate(BaseModel):
+    actor:str=Field(min_length=2,max_length=100)
+    status:Optional[str]=None
+    assigned_to:Optional[str]=Field(default=None,max_length=100)
+    resolution:Optional[str]=None
+    rationale:Optional[str]=Field(default=None,max_length=2000)
+    retest_status:Optional[str]=Field(default=None,pattern="^(pending|passed|failed|not_required)$")
 
 def rows(sql,args=()): return [dict(r) for r in connect().execute(sql,args).fetchall()]
 @app.get("/health")
@@ -39,3 +51,22 @@ def notices(country:Optional[str]=None,project_id:Optional[str]=None,limit:int=Q
 def retrieval(req:SearchRequest): return search(req.query,req.country,req.project_id,req.limit)
 @app.post("/ingestion/sample",status_code=202)
 def ingestion(notices:int=Query(300,ge=10,le=1000),awards:int=Query(300,ge=10,le=1000)): return {"run_id":ingest_sample(notices,awards),"status":"completed"}
+@app.get("/reviews")
+def reviews(status:Optional[str]=None,limit:int=Query(50,ge=1,le=200)):
+    where=" where c.status=?" if status else ""; args=(status,limit) if status else (limit,)
+    return rows(f"select c.*,v.control_id,v.severity,v.result,v.record_type,v.record_id from review_cases c join validation_results v on v.id=c.validation_result_id{where} order by c.updated_at desc limit ?",args)
+@app.post("/reviews",status_code=201)
+def open_review(req:ReviewCreate):
+    try: case_id=create_review_case(req.validation_result_id,req.actor,req.assigned_to,req.priority)
+    except ValueError as exc: raise HTTPException(404,str(exc))
+    return get_review_case(case_id)
+@app.get("/reviews/{case_id}")
+def review(case_id:str):
+    result=get_review_case(case_id)
+    if not result: raise HTTPException(404,"Review case not found")
+    return result
+@app.patch("/reviews/{case_id}")
+def revise_review(case_id:str,req:ReviewUpdate):
+    try: update_review_case(case_id,req.actor,req.status,req.assigned_to,req.resolution,req.rationale,req.retest_status)
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    return get_review_case(case_id)

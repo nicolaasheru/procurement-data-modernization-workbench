@@ -6,7 +6,7 @@ An independent, testable prototype that migrates public World Bank procurement n
 
 ## Executive summary
 
-The workbench demonstrates the core data-engineering responsibilities described for an AI Data Engineer in fiduciary procurement operations: heterogeneous API ingestion, pagination-ready and idempotent processing, source preservation, schema checks, normalization, quarantine, explicit quality controls, project-level integration, feature engineering, deterministic embeddings, filtered retrieval, citation construction, abstention, APIs, tests, and technical documentation.
+The workbench demonstrates the core data-engineering responsibilities described for an AI Data Engineer in fiduciary procurement operations: heterogeneous API ingestion, pagination-ready and idempotent processing, source preservation, schema checks, normalization, quarantine, explicit quality controls, analyst decisions with append-only audit events, project-level integration, feature engineering, deterministic embeddings, filtered retrieval, citation construction, abstention, APIs, tests, and technical documentation.
 
 The verified prototype run uses a bounded sample of **300 procurement notices and 300 contract awards**, then retrieves project metadata for observed project IDs. The source API reported **412,871 procurement notices on 5 August 2026**. The code supports bounded runs up to the official API's documented 1,000-record page size; a production scheduler would iterate pages and checkpoints rather than fit all source records into a free-tier demo.
 
@@ -67,6 +67,7 @@ See [data dictionary](docs/DATA_DICTIONARY.md) and [control catalog](docs/CONTRO
 - primary-key upserts for idempotence
 - normalization with original raw JSON retained
 - quality issue and quarantine ledgers
+- review cases, accountable dispositions, retest state, and append-only audit events
 - curated rebuild and feature generation
 - deterministic local embedding generation
 - retrieval-run logging and abstention
@@ -97,6 +98,15 @@ Safeguards:
 ## API
 
 Run the backend and open `/docs` for OpenAPI.
+
+Review workflow routes:
+
+- `GET /reviews` lists exception cases, with optional status filtering.
+- `POST /reviews` opens one case from a stored validation result and optionally assigns it.
+- `GET /reviews/{case_id}` returns the issue evidence, current decision state, and full event history.
+- `PATCH /reviews/{case_id}` records assignment, lifecycle changes, resolution rationale, and retest state.
+
+A final disposition requires a named actor and rationale. Each transition appends a separate event instead of rewriting history. The browser case study provides the same lifecycle as a recruiter-testable local demonstration; enterprise authentication and authorization remain outside prototype scope.
 
 - `GET /health`
 - `GET /ingestion/runs`
@@ -163,7 +173,7 @@ The README and visible navigation intentionally use the same five views:
 
 ## Testing and evaluation
 
-Unit tests cover project/date normalization, idempotent upserts, curated feature generation, vector retrieval, metadata filtering, and abstention. The frontend test performs a production build and checks rendered product/disclaimer content. Exact executed results are recorded in [TEST_REPORT.md](docs/TEST_REPORT.md); no pass claim should be made without that report.
+Unit tests cover project/date normalization, idempotent upserts, curated feature generation, vector retrieval, metadata filtering, abstention, reviewer assignment, resolution, and audit-event ordering. The frontend test performs a production build and checks rendered product/disclaimer content. Exact executed results are recorded in [TEST_REPORT.md](docs/TEST_REPORT.md); no pass claim should be made without that report.
 
 The transparent retrieval evaluation is intentionally small and prototype-scoped. Queries, manual relevance labels, metrics, and limitations are in [RETRIEVAL_EVALUATION.md](docs/RETRIEVAL_EVALUATION.md).
 
@@ -188,7 +198,7 @@ No external deployment or GitHub push has been performed. Recommended architectu
 3. Move to PostgreSQL + pgvector with Alembic migrations.
 4. Add an embedding-model registry and multilingual retrieval.
 5. Expand adjudicated retrieval labels and automated drift monitoring.
-6. Add authenticated reviewer actions and remediation history.
+6. Add enterprise identity, role-based approvals, and durable browser-to-API integration for reviewer actions.
 
 ## License and attribution
 

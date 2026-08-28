@@ -24,6 +24,10 @@ create table if not exists rejected_records(id integer primary key autoincrement
 create table if not exists procurement_features(project_id text primary key, notice_count integer, award_count integer, supplier_count integer, award_amount real, missing_field_ratio real, linkage_status text, quality_score real);
 create table if not exists document_chunks(chunk_id text primary key, record_type text, record_id text, project_id text, text text, official_url text, metadata text, embedding text);
 create table if not exists retrieval_runs(run_id text primary key, query text, created_at text, result_count integer, latency_ms real, abstained integer);
+create table if not exists review_cases(case_id text primary key, validation_result_id integer not null, status text not null, priority text not null, assigned_to text, created_at text not null, updated_at text not null, resolution text, resolution_rationale text, decided_by text, decided_at text, retest_status text, foreign key(validation_result_id) references validation_results(id));
+create table if not exists review_events(event_id text primary key, case_id text not null, event_type text not null, actor text not null, occurred_at text not null, from_status text, to_status text, note text, metadata text, foreign key(case_id) references review_cases(case_id));
+create index if not exists idx_review_cases_status on review_cases(status);
+create index if not exists idx_review_events_case on review_events(case_id,occurred_at);
 """
 
 CONTROLS = {
@@ -158,3 +162,43 @@ def search(query, country=None, project_id=None, limit=8, db_path: Path=DB):
     out=sorted(out,key=lambda x:x["retrieval_score"],reverse=True)[:limit]; latency=(time.perf_counter()-started)*1000; rid=str(uuid.uuid4()); abstained=not out or out[0]["retrieval_score"]<0.12
     db.execute("insert into retrieval_runs values(?,?,?,?,?,?)",(rid,query,datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),len(out),latency,int(abstained))); db.commit()
     return {"run_id":rid,"query":query,"results":[] if abstained else out,"abstained":abstained,"message":"Insufficient evidence in the indexed prototype scope." if abstained else "Retrieved facts only; relevance score is ranking, not factual confidence.","latency_ms":round(latency,2)}
+
+REVIEW_STATUSES={"open","assigned","in_review","resolved","rejected"}
+REVIEW_RESOLUTIONS={"accept_exception","remediate","reject_record"}
+
+def utc_now(): return datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
+
+def create_review_case(validation_result_id, actor="system", assigned_to=None, priority="medium", db_path: Path=DB):
+    db=connect(db_path)
+    issue=db.execute("select * from validation_results where id=?",(validation_result_id,)).fetchone()
+    if not issue: raise ValueError("Validation result not found")
+    existing=db.execute("select case_id from review_cases where validation_result_id=?",(validation_result_id,)).fetchone()
+    if existing: return existing[0]
+    now=utc_now(); case_id=f"REV-{validation_result_id:05d}"; status="assigned" if assigned_to else "open"
+    db.execute("insert into review_cases(case_id,validation_result_id,status,priority,assigned_to,created_at,updated_at) values(?,?,?,?,?,?,?)",(case_id,validation_result_id,status,priority,assigned_to,now,now))
+    db.execute("insert into review_events values(?,?,?,?,?,?,?,?,?)",(str(uuid.uuid4()),case_id,"case_created",actor,now,None,status,"Created from validation result",json.dumps({"control_id":issue["control_id"]})))
+    if assigned_to:
+        db.execute("insert into review_events values(?,?,?,?,?,?,?,?,?)",(str(uuid.uuid4()),case_id,"assigned",actor,now,"open","assigned",f"Assigned to {assigned_to}","{}"))
+    db.commit(); return case_id
+
+def update_review_case(case_id, actor, status=None, assigned_to=None, resolution=None, rationale=None, retest_status=None, db_path: Path=DB):
+    db=connect(db_path); case=db.execute("select * from review_cases where case_id=?",(case_id,)).fetchone()
+    if not case: raise ValueError("Review case not found")
+    if status and status not in REVIEW_STATUSES: raise ValueError("Invalid review status")
+    if resolution and resolution not in REVIEW_RESOLUTIONS: raise ValueError("Invalid resolution")
+    if resolution and not (rationale or "").strip(): raise ValueError("Resolution rationale is required")
+    next_status=status or case["status"]
+    if resolution: next_status="rejected" if resolution=="reject_record" else "resolved"
+    now=utc_now(); next_assignee=assigned_to if assigned_to is not None else case["assigned_to"]
+    db.execute("update review_cases set status=?,assigned_to=?,updated_at=?,resolution=coalesce(?,resolution),resolution_rationale=coalesce(?,resolution_rationale),decided_by=case when ? is not null then ? else decided_by end,decided_at=case when ? is not null then ? else decided_at end,retest_status=coalesce(?,retest_status) where case_id=?",(next_status,next_assignee,now,resolution,rationale,resolution,actor,resolution,now,retest_status,case_id))
+    event_type="decision_recorded" if resolution else "case_updated"
+    note=rationale or (f"Assigned to {next_assignee}" if assigned_to is not None else f"Status changed to {next_status}")
+    db.execute("insert into review_events values(?,?,?,?,?,?,?,?,?)",(str(uuid.uuid4()),case_id,event_type,actor,now,case["status"],next_status,note,json.dumps({"resolution":resolution,"retest_status":retest_status})))
+    db.commit()
+
+def get_review_case(case_id, db_path: Path=DB):
+    db=connect(db_path)
+    case=db.execute("select c.*,v.control_id,v.severity,v.result,v.record_type,v.record_id,v.source_field,v.original_value,v.normalized_value,v.recommended_handling,v.run_id from review_cases c join validation_results v on v.id=c.validation_result_id where c.case_id=?",(case_id,)).fetchone()
+    if not case: return None
+    events=db.execute("select * from review_events where case_id=? order by occurred_at,event_id",(case_id,)).fetchall()
+    return {"case":dict(case),"events":[dict(e) for e in events]}
