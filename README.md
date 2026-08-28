@@ -163,13 +163,14 @@ No secrets belong in source control.
 
 ## Demo
 
-The README and visible navigation intentionally use the same five views:
+The interface is organized around one operational outcome: determine whether a migration run is ready for controlled release.
 
-1. Open **Overview** to see the engineering challenge, verified scope, and guided walkthrough.
-2. Open **Pipeline** to follow the 5 August run through raw, standardized, curated, feature, and retrieval layers; inspect reconciliation and source-to-target mappings.
-3. Open **Data quality**, select DQ-008, and inspect its rule, affected count, recommended handling, and no-silent-mutation principle.
-4. Open **Evidence search**, run `healthcare furniture in Pakistan`, inspect the match explanation and official citation, then run `nuclear procurement on Mars` to observe abstention.
-5. Open **Methodology** to compare implemented capabilities with production extensions and review exactly what the tests cover.
+1. Open **Runs** to inspect reconciliation, quality signals, lineage, and the next required action for the 5 August rehearsal.
+2. Open **Review queue**, assign a selected DQ-008 case, compare its source evidence, and record a disposition with a mandatory rationale.
+3. Open **Release readiness** to see which acceptance criteria passed and which analyst decisions still prevent completion.
+4. Use **Search evidence** contextually when a review requires supporting records. The explorer returns cited records or no evidence; it does not fabricate an answer.
+
+The three selected review cases are a transparent prototype adjudication scope drawn from the verified DQ-008 results. The full run contains 47 duplicate-content signals and 113 non-blocking project-linkage warnings.
 
 ## Testing and evaluation
 

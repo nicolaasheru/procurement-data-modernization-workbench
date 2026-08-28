@@ -200,5 +200,5 @@ def get_review_case(case_id, db_path: Path=DB):
     db=connect(db_path)
     case=db.execute("select c.*,v.control_id,v.severity,v.result,v.record_type,v.record_id,v.source_field,v.original_value,v.normalized_value,v.recommended_handling,v.run_id from review_cases c join validation_results v on v.id=c.validation_result_id where c.case_id=?",(case_id,)).fetchone()
     if not case: return None
-    events=db.execute("select * from review_events where case_id=? order by occurred_at,event_id",(case_id,)).fetchall()
+    events=db.execute("select * from review_events where case_id=? order by occurred_at,rowid",(case_id,)).fetchall()
     return {"case":dict(case),"events":[dict(e) for e in events]}
