@@ -127,6 +127,7 @@ export default function Workbench() {
   const [notice, setNotice] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searchStatus, setSearchStatus] = useState<
@@ -147,6 +148,7 @@ export default function Workbench() {
       if (event.key === "Escape") {
         setMobileToolsOpen(false);
         setSearchOpen(false);
+        setAboutOpen(false);
       }
     };
     window.addEventListener("keydown", closeOnEscape);
@@ -323,23 +325,31 @@ export default function Workbench() {
               ),
             )}
           </div>
-          <button
-            className="evidence-button"
-            onClick={() => setSearchOpen(true)}
-          >
-            Search evidence
-          </button>
-          <button
-            className="mobile-tools-button"
-            aria-expanded={mobileToolsOpen}
-            aria-controls="mobile-tools"
-            onClick={() => setMobileToolsOpen((open) => !open)}
-          >
-            Sources &amp; search
-          </button>
+          <div className="utility-navigation">
+            <button
+              className="evidence-button"
+              onClick={() => setSearchOpen(true)}
+            >
+              Search evidence
+            </button>
+            <button className="about-button" onClick={() => setAboutOpen(true)}>
+              About
+            </button>
+            <button
+              className="mobile-tools-button"
+              aria-expanded={mobileToolsOpen}
+              aria-controls="mobile-tools"
+              onClick={() => setMobileToolsOpen((open) => !open)}
+            >
+              Sources &amp; search
+            </button>
+          </div>
         </nav>
         {mobileToolsOpen && (
-          <div className="mobile-tools-backdrop" onClick={() => setMobileToolsOpen(false)}>
+          <div
+            className="mobile-tools-backdrop"
+            onClick={() => setMobileToolsOpen(false)}
+          >
             <section
               id="mobile-tools"
               className="mobile-tools-panel"
@@ -350,7 +360,12 @@ export default function Workbench() {
             >
               <header>
                 <h2>Sources and search</h2>
-                <button onClick={() => setMobileToolsOpen(false)} aria-label="Close sources and search">×</button>
+                <button
+                  onClick={() => setMobileToolsOpen(false)}
+                  aria-label="Close sources and search"
+                >
+                  ×
+                </button>
               </header>
               <button
                 className="mobile-search-action"
@@ -361,15 +376,36 @@ export default function Workbench() {
               >
                 Search migration evidence
               </button>
+              <button
+                className="mobile-about-action"
+                onClick={() => {
+                  setMobileToolsOpen(false);
+                  setAboutOpen(true);
+                }}
+              >
+                About this workbench
+              </button>
               <nav aria-label="Official public record sources">
-                <a href="https://financesone.worldbank.org/procurement-notice/DS00979" target="_blank">
-                  <b>Procurement notices</b><span>World Bank public dataset DS00979</span>
+                <a
+                  href="https://financesone.worldbank.org/procurement-notice/DS00979"
+                  target="_blank"
+                >
+                  <b>Procurement notices</b>
+                  <span>World Bank public dataset DS00979</span>
                 </a>
-                <a href="https://datacatalog.worldbank.org/search/dataset/0037797/world-bank-contract-awards" target="_blank">
-                  <b>Contract awards</b><span>World Bank Data Catalog dataset 0037797</span>
+                <a
+                  href="https://datacatalog.worldbank.org/search/dataset/0037797/world-bank-contract-awards"
+                  target="_blank"
+                >
+                  <b>Contract awards</b>
+                  <span>World Bank Data Catalog dataset 0037797</span>
                 </a>
-                <a href="https://datacatalog.worldbank.org/search/dataset/0037800/world-bank-projects-operations" target="_blank">
-                  <b>Projects and Operations</b><span>World Bank Data Catalog dataset 0037800</span>
+                <a
+                  href="https://datacatalog.worldbank.org/search/dataset/0037800/world-bank-projects-operations"
+                  target="_blank"
+                >
+                  <b>Projects and Operations</b>
+                  <span>World Bank Data Catalog dataset 0037800</span>
                 </a>
               </nav>
             </section>
@@ -502,6 +538,70 @@ export default function Workbench() {
                 ))}
               </div>
             )}
+          </aside>
+        </div>
+      )}
+      {aboutOpen && (
+        <div className="about-backdrop" onMouseDown={() => setAboutOpen(false)}>
+          <aside
+            className="about-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="about-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h2 id="about-title">About this workbench</h2>
+              <button
+                onClick={() => setAboutOpen(false)}
+                aria-label="Close about this workbench"
+              >
+                ×
+              </button>
+            </header>
+            <p className="about-purpose">
+              A migration-control prototype for procurement data and QA analysts
+              deciding whether transformed records are safe to enter a trusted
+              target system.
+            </p>
+            <div className="about-flow">
+              <div>
+                <b>Inspect</b>
+                <span>
+                  Reconcile a migration run and understand its quality signals.
+                </span>
+              </div>
+              <div>
+                <b>Decide</b>
+                <span>
+                  Review source evidence and record an accountable disposition.
+                </span>
+              </div>
+              <div>
+                <b>Release</b>
+                <span>
+                  Confirm whether the bounded migration meets its acceptance
+                  criteria.
+                </span>
+              </div>
+            </div>
+            <div className="about-scope">
+              <b>Prototype scope</b>
+              <p>
+                Built independently with 600 official public World Bank
+                procurement records and three selected analyst-review cases. It
+                does not access STEP, private data, or internal World Bank
+                systems.
+              </p>
+            </div>
+            <footer>
+              <span>
+                Designed and engineered by Nicolaas Heru Dreandachrista.
+              </span>
+              <span>
+                Not affiliated with or endorsed by the World Bank Group.
+              </span>
+            </footer>
           </aside>
         </div>
       )}
@@ -740,7 +840,9 @@ function ReviewView(p: {
               <p>
                 Notice {c.recordId} · {c.country}
               </p>
-              <footer><span>{c.assignee || "Unassigned"}</span></footer>
+              <footer>
+                <span>{c.assignee || "Unassigned"}</span>
+              </footer>
             </button>
           ))}
         </div>
@@ -806,7 +908,9 @@ function ReviewView(p: {
           </article>
           <aside className="decision-card">
             <h3>Analyst decision</h3>
-            <p className="decision-intro">Determine how this record should be handled in the trusted layer.</p>
+            <p className="decision-intro">
+              Determine how this record should be handled in the trusted layer.
+            </p>
             {!locked ? (
               <>
                 <label>
