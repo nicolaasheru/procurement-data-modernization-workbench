@@ -1,0 +1,138 @@
+.queue-search {
+  margin-top: 20px;
+}
+.queue-search label,
+.queue-filter-grid label {
+  display: block;
+  color: #536e7d;
+  font-size: 11px;
+  font-weight: 650;
+}
+.queue-search input,
+.queue-filter-grid select {
+  width: 100%;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #183242;
+  box-shadow: inset 0 0 0 1px rgba(174, 196, 206, 0.52);
+}
+.queue-search input {
+  min-height: 42px;
+  padding: 0 13px;
+  font-size: 12px;
+}
+.queue-search input:focus,
+.queue-filter-grid select:focus {
+  outline: 2px solid rgba(8, 121, 184, 0.3);
+  outline-offset: 1px;
+}
+.queue-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.queue-filter-grid label:last-child {
+  grid-column: 1 / -1;
+}
+.queue-filter-grid select {
+  min-height: 37px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+.queue-result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 15px;
+  color: #607988;
+  font-size: 11px;
+}
+.queue-result-summary button,
+.queue-empty button {
+  border: 0;
+  background: none;
+  color: #0068a7;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.queue-empty {
+  margin: 10px 6px;
+  border-radius: 15px;
+  background: rgba(232, 241, 245, 0.72);
+  padding: 24px 18px;
+  text-align: center;
+}
+.queue-empty b {
+  color: #00345b;
+  font-size: 13px;
+}
+.queue-empty p {
+  color: #607988;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.term-guide {
+  margin-top: 20px;
+  border-radius: 14px;
+  background: rgba(232, 241, 245, 0.58);
+  padding: 14px 16px;
+}
+.term-guide summary {
+  color: #0068a7;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.term-guide summary::-webkit-details-marker {
+  display: none;
+}
+.term-guide summary::after {
+  content: "Show";
+  float: right;
+  color: #607988;
+  font-size: 10px;
+  font-weight: 600;
+}
+.term-guide[open] summary::after {
+  content: "Hide";
+}
+.term-guide dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 15px 0 0;
+}
+.term-guide dl > div {
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.term-guide dt {
+  color: #183242;
+  font-size: 11px;
+  font-weight: 750;
+}
+.term-guide dd {
+  margin: 5px 0 0;
+  color: #607988;
+  font-size: 10px;
+  line-height: 1.45;
+}
+@media (max-width: 720px) {
+  .queue-filter-grid {
+    grid-template-columns: 1fr;
+  }
+  .queue-filter-grid label:last-child {
+    grid-column: auto;
+  }
+  .term-guide dl {
+    grid-template-columns: 1fr;
+  }
+}

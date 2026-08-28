@@ -850,6 +850,49 @@ function ReviewView(p: {
 }) {
   const s = p.selected;
   const locked = s.status === "Resolved" || s.status === "Rejected";
+  const [queueQuery, setQueueQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const filteredQueue = useMemo(() => {
+    const search = queueQuery.trim().toLowerCase();
+    return p.queue.filter((item) => {
+      const searchable = [
+        item.id,
+        item.recordId,
+        item.projectId,
+        item.country,
+        item.control,
+        item.title,
+        item.assignee,
+      ]
+        .join(" ")
+        .toLowerCase();
+      const complete = item.status === "Resolved" || item.status === "Rejected";
+      return (
+        (!search || searchable.includes(search)) &&
+        (statusFilter === "all" ||
+          (statusFilter === "open" && !complete) ||
+          (statusFilter === "complete" && complete)) &&
+        (priorityFilter === "all" ||
+          item.priority.toLowerCase() === priorityFilter) &&
+        (ownerFilter === "all" ||
+          (ownerFilter === "assigned" && Boolean(item.assignee)) ||
+          (ownerFilter === "unassigned" && !item.assignee))
+      );
+    });
+  }, [p.queue, queueQuery, statusFilter, priorityFilter, ownerFilter]);
+  const filtersActive =
+    Boolean(queueQuery) ||
+    statusFilter !== "all" ||
+    priorityFilter !== "all" ||
+    ownerFilter !== "all";
+  const clearFilters = () => {
+    setQueueQuery("");
+    setStatusFilter("all");
+    setPriorityFilter("all");
+    setOwnerFilter("all");
+  };
   return (
     <div className="review-page">
       <aside className="queue-column">
@@ -858,21 +901,62 @@ function ReviewView(p: {
           <p className="review-progress" aria-live="polite">
             {p.completed} of {p.total} selected reviews complete
           </p>
-          <div className="queue-filters">
-            <button className="active">All 3</button>
-            <button>
-              Open{" "}
-              {
-                p.queue.filter(
-                  (c) =>
-                    !(["Resolved", "Rejected"] as Status[]).includes(c.status),
-                ).length
-              }
-            </button>
+          <div className="queue-search">
+            <label htmlFor="queue-search">Find a review case</label>
+            <input
+              id="queue-search"
+              type="search"
+              value={queueQuery}
+              onChange={(event) => setQueueQuery(event.target.value)}
+              placeholder="Case, notice, project, country"
+            />
+          </div>
+          <div className="queue-filter-grid">
+            <label>
+              Status
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+              >
+                <option value="all">Any status</option>
+                <option value="open">Open work</option>
+                <option value="complete">Completed</option>
+              </select>
+            </label>
+            <label>
+              Priority
+              <select
+                value={priorityFilter}
+                onChange={(event) => setPriorityFilter(event.target.value)}
+              >
+                <option value="all">Any priority</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+              </select>
+            </label>
+            <label>
+              Ownership
+              <select
+                value={ownerFilter}
+                onChange={(event) => setOwnerFilter(event.target.value)}
+              >
+                <option value="all">Any owner</option>
+                <option value="unassigned">Unassigned</option>
+                <option value="assigned">Assigned</option>
+              </select>
+            </label>
+          </div>
+          <div className="queue-result-summary" aria-live="polite">
+            <span>
+              {filteredQueue.length} of {p.queue.length} cases
+            </span>
+            {filtersActive && (
+              <button onClick={clearFilters}>Clear filters</button>
+            )}
           </div>
         </header>
         <div className="case-list">
-          {p.queue.map((c) => (
+          {filteredQueue.map((c) => (
             <button
               key={c.id}
               className={p.selectedId === c.id ? "selected" : ""}
@@ -895,6 +979,15 @@ function ReviewView(p: {
               </footer>
             </button>
           ))}
+          {!filteredQueue.length && (
+            <div className="queue-empty">
+              <b>No review cases match</b>
+              <p>
+                Change the search or clear the filters to restore the queue.
+              </p>
+              <button onClick={clearFilters}>Clear filters</button>
+            </div>
+          )}
         </div>
       </aside>
       <section className="case-workspace">
@@ -955,6 +1048,39 @@ function ReviewView(p: {
               <span>Checksum verified</span>
               <span>No automatic mutation</span>
             </div>
+            <details className="term-guide">
+              <summary>Specialist terms</summary>
+              <dl>
+                <div>
+                  <dt>Normalized content</dt>
+                  <dd>
+                    Text standardized for comparison without changing the source
+                    record.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Trusted layer</dt>
+                  <dd>
+                    The validated dataset approved for reporting and downstream
+                    use.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Checksum</dt>
+                  <dd>
+                    A digital fingerprint used to verify that retained evidence
+                    has not changed.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Retest</dt>
+                  <dd>
+                    A repeat of the data-quality check after a record is
+                    corrected.
+                  </dd>
+                </div>
+              </dl>
+            </details>
           </article>
           <aside className="decision-card">
             <h3>Analyst decision</h3>

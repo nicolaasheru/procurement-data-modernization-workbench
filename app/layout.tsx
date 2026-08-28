@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./workbench.css";
 import "./about.css";
 import "./decision-validation.css";
+import "./queue-tools.css";
 const sans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });
 export const metadata: Metadata = {

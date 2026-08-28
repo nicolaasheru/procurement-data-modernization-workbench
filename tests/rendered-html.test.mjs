@@ -53,6 +53,13 @@ test("renders development preview metadata", async () => {
   assert.match(source, /aria-invalid/i);
   assert.match(source, /20 minimum/i);
   assert.match(source, /Decision requirements/i);
+  assert.match(source, /Find a review case/i);
+  assert.match(source, /Any status/i);
+  assert.match(source, /Any priority/i);
+  assert.match(source, /Any owner/i);
+  assert.match(source, /No review cases match/i);
+  assert.match(source, /Specialist terms/i);
+  assert.match(source, /The validated dataset approved for reporting/i);
   assert.match(source, /Begin review before recording a decision/i);
   assert.match(source, /Release decision package/i);
   assert.match(source, /Search trusted records/i);
