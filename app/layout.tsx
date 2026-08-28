@@ -4,6 +4,7 @@ import "./workbench.css";
 import "./about.css";
 import "./decision-validation.css";
 import "./queue-tools.css";
+import "./mission-control.css";
 const sans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });
 export const metadata: Metadata = {

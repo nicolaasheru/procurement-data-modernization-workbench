@@ -60,6 +60,11 @@ test("renders development preview metadata", async () => {
   assert.match(source, /No review cases match/i);
   assert.match(source, /Specialist terms/i);
   assert.match(source, /The validated dataset approved for reporting/i);
+  assert.match(source, /Verified this session/i);
+  assert.match(source, /Every record remains accounted for/i);
+  assert.match(source, /Official project context/i);
+  assert.match(source, /search\.worldbank\.org\/api\/v3\/projects/i);
+  assert.match(source, /readiness-ring/i);
   assert.match(source, /Begin review before recording a decision/i);
   assert.match(source, /Release decision package/i);
   assert.match(source, /Search trusted records/i);

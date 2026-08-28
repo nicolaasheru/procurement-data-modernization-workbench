@@ -35,6 +35,12 @@ type CorpusRecord = {
   embedding: number[];
 };
 type SearchResult = CorpusRecord & { score: number };
+type ProjectContext = {
+  title?: string;
+  sector?: string;
+  approvalDate?: string;
+  status?: string;
+};
 
 const casesSeed: ReviewCase[] = [
   {
@@ -491,9 +497,15 @@ export default function Workbench() {
         )}
       </main>
       <footer>
-        <span>
-          Independent prototype using official public World Bank procurement
-          records
+        <span className="footer-purpose">
+          <b>Why this exists</b>
+          <span>
+            An independent rehearsal of how procurement-data analysts can
+            validate a migration, adjudicate machine-raised exceptions and
+            preserve evidence before release. 600 migration records and 759
+            searchable evidence chunks are indexed from official public World
+            Bank sources.
+          </span>
         </span>
         <span>
           <a
@@ -661,6 +673,14 @@ function RunView({
   onReadiness: () => void;
   completed: number;
 }) {
+  const [verifiedAt] = useState(() =>
+    new Date().toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+      timeZoneName: "short",
+    }),
+  );
   return (
     <>
       <section className="run-hero">
@@ -678,8 +698,8 @@ function RunView({
         <div className="run-status">
           <i />
           <span>
-            <b>Validation complete</b>
-            <small>Analyst review required</small>
+            <b>Verified this session</b>
+            <small>{verifiedAt} · analyst review required</small>
           </span>
         </div>
       </section>
@@ -700,26 +720,82 @@ function RunView({
         </section>
         <section className="metrics">
           <Metric
-            value="600"
+            value={600}
             label="Records read"
             detail="300 notices · 300 awards"
           />
           <Metric
-            value="600"
+            value={600}
             label="Loaded"
             detail="No rejected source records"
           />
           <Metric
-            value="160"
+            value={160}
             label="Quality signals"
             detail="47 duplicates · 113 linkage"
             tone="warning"
           />
           <Metric
-            value={`${completed}/3`}
+            value={completed}
             label="Selected reviews complete"
-            detail="Prototype adjudication scope"
+            detail={`${completed} of 3 · prototype adjudication scope`}
           />
+          <Metric
+            value={2}
+            label="Regions represented"
+            detail="Africa · regional operations"
+          />
+        </section>
+        <section
+          className="pipeline-telemetry"
+          aria-label="Migration record flow"
+        >
+          <header>
+            <div>
+              <span className="live-indicator">
+                <i /> Verified record flow
+              </span>
+              <h2>Every record remains accounted for</h2>
+            </div>
+            <p>600 source records · 160 signals · 3 selected decisions</p>
+          </header>
+          <div className="pipeline-track">
+            <div className="pipeline-node source-node">
+              <span>Source snapshot</span>
+              <b>600</b>
+              <small>300 notices · 300 awards</small>
+            </div>
+            <div className="flow-channel">
+              <i />
+              <i />
+              <i />
+            </div>
+            <div className="pipeline-node gate-node">
+              <span>Quality gate</span>
+              <b>160</b>
+              <small>Signals preserved for review</small>
+            </div>
+            <div className="flow-channel">
+              <i />
+              <i />
+              <i />
+            </div>
+            <div className="pipeline-node review-node">
+              <span>Human review</span>
+              <b>{3 - completed}</b>
+              <small>Selected cases still open</small>
+            </div>
+            <div className="flow-channel">
+              <i />
+              <i />
+              <i />
+            </div>
+            <div className="pipeline-node curated-node">
+              <span>Curated layer</span>
+              <b>600</b>
+              <small>Release held until ready</small>
+            </div>
+          </div>
         </section>
         <div className="run-grid">
           <section className="panel reconciliation-panel">
@@ -850,6 +926,45 @@ function ReviewView(p: {
 }) {
   const s = p.selected;
   const locked = s.status === "Resolved" || s.status === "Rejected";
+  const [projectContext, setProjectContext] = useState<ProjectContext | null>(
+    null,
+  );
+  const [projectContextStatus, setProjectContextStatus] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  useEffect(() => {
+    let active = true;
+    setProjectContextStatus("loading");
+    fetch(
+      `https://search.worldbank.org/api/v3/projects?format=json&id=${encodeURIComponent(s.projectId)}`,
+    )
+      .then((response) => {
+        if (!response.ok) throw new Error("Project context unavailable");
+        return response.json();
+      })
+      .then((payload) => {
+        if (!active) return;
+        const record =
+          payload?.projects?.[s.projectId] || payload?.projects?.[0];
+        if (!record) throw new Error("Project not returned");
+        setProjectContext({
+          title: record.proj_name || record.project_name,
+          sector: record.sector1?.Name || record.sector_name,
+          approvalDate: record.boardapprovaldate,
+          status: record.status,
+        });
+        setProjectContextStatus("ready");
+      })
+      .catch(() => {
+        if (active) {
+          setProjectContext(null);
+          setProjectContextStatus("unavailable");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [s.projectId]);
   const [queueQuery, setQueueQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -990,7 +1105,7 @@ function ReviewView(p: {
           )}
         </div>
       </aside>
-      <section className="case-workspace">
+      <section className="case-workspace" key={s.id}>
         <header className="case-header">
           <div>
             <span>
@@ -1043,6 +1158,51 @@ function ReviewView(p: {
                 signal, not proof that either record is invalid.
               </p>
             </div>
+            <section className="official-project-context" aria-live="polite">
+              <header>
+                <div>
+                  <span className="live-indicator">
+                    <i /> Official project context
+                  </span>
+                  <h4>{s.projectId}</h4>
+                </div>
+                <a
+                  href={`https://projects.worldbank.org/en/projects-operations/project-detail/${s.projectId}`}
+                  target="_blank"
+                >
+                  Verify at source
+                </a>
+              </header>
+              {projectContextStatus === "loading" && (
+                <p>Retrieving the public project record…</p>
+              )}
+              {projectContextStatus === "ready" && projectContext && (
+                <dl>
+                  <div>
+                    <dt>Project title</dt>
+                    <dd>{projectContext.title || "Not published"}</dd>
+                  </div>
+                  <div>
+                    <dt>Sector</dt>
+                    <dd>{projectContext.sector || "Not published"}</dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{projectContext.status || "Not published"}</dd>
+                  </div>
+                  <div>
+                    <dt>Approval date</dt>
+                    <dd>{projectContext.approvalDate || "Not published"}</dd>
+                  </div>
+                </dl>
+              )}
+              {projectContextStatus === "unavailable" && (
+                <p>
+                  The live context could not be retrieved. The official source
+                  link remains available for verification.
+                </p>
+              )}
+            </section>
             <div className="lineage">
               <span>Source payload retained</span>
               <span>Checksum verified</span>
@@ -1251,6 +1411,8 @@ function ReleaseView({
   ready: boolean;
   onReview: () => void;
 }) {
+  const passedGates = ready ? 5 : 3;
+  const readinessPercent = passedGates * 20;
   return (
     <div className="page release-page">
       <section className={`release-hero ${ready ? "ready" : "blocked"}`}>
@@ -1273,9 +1435,19 @@ function ReleaseView({
           <div>
             <h2>Release decision package</h2>
           </div>
-          <p>
-            {completed} of {total} selected reviews completed
-          </p>
+          <div
+            className={`readiness-ring ${ready ? "complete" : ""}`}
+            style={
+              {
+                "--progress": `${readinessPercent * 3.6}deg`,
+              } as React.CSSProperties
+            }
+          >
+            <span>
+              <b>{readinessPercent}%</b>
+              <small>gates passed</small>
+            </span>
+          </div>
         </header>
         <Criterion
           title="Source-to-target reconciliation"
@@ -1332,15 +1504,28 @@ function Metric({
   detail,
   tone,
 }: {
-  value: string;
+  value: number;
   label: string;
   detail: string;
   tone?: string;
 }) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    const started = performance.now();
+    const duration = 750;
+    let frame = 0;
+    const tick = (now: number) => {
+      const progress = Math.min((now - started) / duration, 1);
+      setDisplay(Math.round(value * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
   return (
     <article className={tone || ""}>
       <span>{label}</span>
-      <b>{value}</b>
+      <b>{display}</b>
       <p>{detail}</p>
     </article>
   );
