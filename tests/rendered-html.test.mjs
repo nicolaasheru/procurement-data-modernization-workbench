@@ -41,6 +41,9 @@ test("renders development preview metadata", async () => {
   assert.match(source, /DS00979/i);
   assert.match(source, /0037797/i);
   assert.match(source, /0037800/i);
+  assert.match(source, /Sources &amp; search/i);
+  assert.match(source, /Search migration evidence/i);
+  assert.match(source, /aria-controls="mobile-tools"/i);
   assert.match(source, /Record accountable decision/i);
   assert.match(source, /Release decision package/i);
   assert.match(source, /Search trusted records/i);

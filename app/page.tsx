@@ -126,6 +126,7 @@ export default function Workbench() {
   const [rationale, setRationale] = useState("");
   const [notice, setNotice] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searchStatus, setSearchStatus] = useState<
@@ -141,6 +142,16 @@ export default function Workbench() {
   useEffect(() => {
     localStorage.setItem("pdmw-review-v2", JSON.stringify(cases));
   }, [cases]);
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileToolsOpen(false);
+        setSearchOpen(false);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
   const selected = cases.find((c) => c.id === selectedId) || cases[0];
   const completed = cases.filter(
     (c) => c.status === "Resolved" || c.status === "Rejected",
@@ -318,7 +329,52 @@ export default function Workbench() {
           >
             Search evidence
           </button>
+          <button
+            className="mobile-tools-button"
+            aria-expanded={mobileToolsOpen}
+            aria-controls="mobile-tools"
+            onClick={() => setMobileToolsOpen((open) => !open)}
+          >
+            Sources &amp; search
+          </button>
         </nav>
+        {mobileToolsOpen && (
+          <div className="mobile-tools-backdrop" onClick={() => setMobileToolsOpen(false)}>
+            <section
+              id="mobile-tools"
+              className="mobile-tools-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Sources and evidence search"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header>
+                <h2>Sources and search</h2>
+                <button onClick={() => setMobileToolsOpen(false)} aria-label="Close sources and search">×</button>
+              </header>
+              <button
+                className="mobile-search-action"
+                onClick={() => {
+                  setMobileToolsOpen(false);
+                  setSearchOpen(true);
+                }}
+              >
+                Search migration evidence
+              </button>
+              <nav aria-label="Official public record sources">
+                <a href="https://financesone.worldbank.org/procurement-notice/DS00979" target="_blank">
+                  <b>Procurement notices</b><span>World Bank public dataset DS00979</span>
+                </a>
+                <a href="https://datacatalog.worldbank.org/search/dataset/0037797/world-bank-contract-awards" target="_blank">
+                  <b>Contract awards</b><span>World Bank Data Catalog dataset 0037797</span>
+                </a>
+                <a href="https://datacatalog.worldbank.org/search/dataset/0037800/world-bank-projects-operations" target="_blank">
+                  <b>Projects and Operations</b><span>World Bank Data Catalog dataset 0037800</span>
+                </a>
+              </nav>
+            </section>
+          </div>
+        )}
       </header>
       <main>
         {view === "Runs" && (
