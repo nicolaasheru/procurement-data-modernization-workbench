@@ -26,17 +26,17 @@ test("renders development preview metadata", async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.match(
-    response.headers.get("content-type") ?? "",
-    /^text\/html\b/i,
-  );
+  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, developmentPreviewMeta);
   assert.match(html, /Migration control workbench/i);
   assert.match(html, /Review unresolved cases/i);
   assert.match(html, /Release readiness/i);
 
-  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const source = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(source, /Official public sources/i);
   assert.match(source, /DS00979/i);
   assert.match(source, /0037797/i);
@@ -48,6 +48,12 @@ test("renders development preview metadata", async () => {
   assert.match(source, /procurement data and QA analysts/i);
   assert.match(source, /Designed and engineered by Nicolaas/i);
   assert.match(source, /Record accountable decision/i);
+  assert.match(source, /selected reviews complete/i);
+  assert.match(source, /disabled={!p.canSubmit}/i);
+  assert.match(source, /aria-invalid/i);
+  assert.match(source, /20 minimum/i);
+  assert.match(source, /Decision requirements/i);
+  assert.match(source, /Begin review before recording a decision/i);
   assert.match(source, /Release decision package/i);
   assert.match(source, /Search trusted records/i);
   assert.doesNotMatch(source, /Can he engineer the migration/i);

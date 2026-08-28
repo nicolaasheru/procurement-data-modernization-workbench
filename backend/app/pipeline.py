@@ -186,7 +186,9 @@ def update_review_case(case_id, actor, status=None, assigned_to=None, resolution
     if not case: raise ValueError("Review case not found")
     if status and status not in REVIEW_STATUSES: raise ValueError("Invalid review status")
     if resolution and resolution not in REVIEW_RESOLUTIONS: raise ValueError("Invalid resolution")
-    if resolution and not (rationale or "").strip(): raise ValueError("Resolution rationale is required")
+    if resolution and case["status"] != "in_review": raise ValueError("Case must be in review before a decision")
+    if resolution and not case["assigned_to"]: raise ValueError("An assigned reviewer is required")
+    if resolution and len((rationale or "").strip()) < 20: raise ValueError("Resolution rationale must be at least 20 characters")
     next_status=status or case["status"]
     if resolution: next_status="rejected" if resolution=="reject_record" else "resolved"
     now=utc_now(); next_assignee=assigned_to if assigned_to is not None else case["assigned_to"]

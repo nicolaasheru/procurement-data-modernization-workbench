@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 
 type View = "Runs" | "Review queue" | "Release readiness";
 type Status = "Open" | "Assigned" | "In review" | "Resolved" | "Rejected";
+type DecisionErrors = Partial<
+  Record<"reviewer" | "status" | "resolution" | "rationale", string>
+>;
 type Event = { action: string; actor: string; at: string; note: string };
 type ReviewCase = {
   id: string;
@@ -122,8 +125,9 @@ export default function Workbench() {
   const [cases, setCases] = useState<ReviewCase[]>(casesSeed);
   const [selectedId, setSelectedId] = useState(casesSeed[0].id);
   const [reviewer, setReviewer] = useState("");
-  const [resolution, setResolution] = useState("Accept documented exception");
+  const [resolution, setResolution] = useState("");
   const [rationale, setRationale] = useState("");
+  const [decisionErrors, setDecisionErrors] = useState<DecisionErrors>({});
   const [notice, setNotice] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
@@ -144,6 +148,13 @@ export default function Workbench() {
     localStorage.setItem("pdmw-review-v2", JSON.stringify(cases));
   }, [cases]);
   useEffect(() => {
+    setReviewer("");
+    setResolution("");
+    setRationale("");
+    setDecisionErrors({});
+    setNotice("");
+  }, [selectedId]);
+  useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setMobileToolsOpen(false);
@@ -159,6 +170,11 @@ export default function Workbench() {
     (c) => c.status === "Resolved" || c.status === "Rejected",
   ).length;
   const releaseReady = completed === cases.length;
+  const canSubmitDecision =
+    selected.status === "In review" &&
+    Boolean(selected.assignee) &&
+    Boolean(resolution) &&
+    rationale.trim().length >= 20;
   const stamp = () =>
     new Date().toLocaleString("en-GB", {
       day: "numeric",
@@ -179,7 +195,11 @@ export default function Workbench() {
     );
   const assign = () => {
     const actor = reviewer.trim();
-    if (!actor) {
+    if (actor.length < 2) {
+      setDecisionErrors((errors) => ({
+        ...errors,
+        reviewer: "Enter the reviewer's full name.",
+      }));
       setNotice("Enter a reviewer name first.");
       return;
     }
@@ -192,11 +212,16 @@ export default function Workbench() {
         note: "Accountability transferred from the unassigned queue.",
       },
     );
+    setDecisionErrors((errors) => ({ ...errors, reviewer: undefined }));
     setNotice("Assignment recorded.");
   };
   const start = () => {
     const actor = selected.assignee || reviewer.trim();
     if (!actor) {
+      setDecisionErrors((errors) => ({
+        ...errors,
+        status: "Assign a reviewer before beginning review.",
+      }));
       setNotice("Assign the case before starting review.");
       return;
     }
@@ -209,16 +234,26 @@ export default function Workbench() {
         note: "The analyst opened the evidence package and began adjudication.",
       },
     );
+    setDecisionErrors((errors) => ({ ...errors, status: undefined }));
     setNotice("Case is now in review.");
   };
   const decide = () => {
-    const actor = selected.assignee || reviewer.trim();
-    if (!actor || rationale.trim().length < 20) {
-      setNotice(
-        "A reviewer and a rationale of at least 20 characters are required.",
-      );
+    const errors: DecisionErrors = {};
+    if (!selected.assignee)
+      errors.reviewer = "Assign an accountable reviewer first.";
+    if (selected.status !== "In review")
+      errors.status = "Begin review before recording a decision.";
+    if (!resolution)
+      errors.resolution = "Select one disposition based on the evidence.";
+    if (rationale.trim().length < 20)
+      errors.rationale =
+        "Explain the evidence and reasoning in 20 characters or more.";
+    setDecisionErrors(errors);
+    if (Object.keys(errors).length) {
+      setNotice("Complete the highlighted decision requirements.");
       return;
     }
+    const actor = selected.assignee as string;
     const status: Status =
       resolution === "Reject from trusted layer" ? "Rejected" : "Resolved";
     update(
@@ -230,8 +265,12 @@ export default function Workbench() {
         note: `${resolution}. ${rationale.trim()}`,
       },
     );
+    setResolution("");
     setRationale("");
-    setNotice("Decision added to the audit trail.");
+    setDecisionErrors({});
+    setNotice(
+      `Decision recorded. ${completed + 1} of ${cases.length} selected reviews complete.`,
+    );
   };
   async function search() {
     if (query.trim().length < 3) return;
@@ -433,6 +472,10 @@ export default function Workbench() {
             rationale={rationale}
             setRationale={setRationale}
             notice={notice}
+            errors={decisionErrors}
+            completed={completed}
+            total={cases.length}
+            canSubmit={canSubmitDecision}
             assign={assign}
             start={start}
             decide={decide}
@@ -797,6 +840,10 @@ function ReviewView(p: {
   rationale: string;
   setRationale: (v: string) => void;
   notice: string;
+  errors: DecisionErrors;
+  completed: number;
+  total: number;
+  canSubmit: boolean;
   assign: () => void;
   start: () => void;
   decide: () => void;
@@ -808,6 +855,9 @@ function ReviewView(p: {
       <aside className="queue-column">
         <header>
           <h1>Exception review</h1>
+          <p className="review-progress" aria-live="polite">
+            {p.completed} of {p.total} selected reviews complete
+          </p>
           <div className="queue-filters">
             <button className="active">All 3</button>
             <button>
@@ -920,14 +970,48 @@ function ReviewView(p: {
                       value={p.reviewer}
                       onChange={(e) => p.setReviewer(e.target.value)}
                       placeholder={s.assignee || "Full name"}
+                      aria-invalid={Boolean(p.errors.reviewer)}
+                      aria-describedby="reviewer-error"
                     />
-                    <button onClick={p.assign}>Assign</button>
+                    <button
+                      onClick={p.assign}
+                      disabled={p.reviewer.trim().length < 2}
+                    >
+                      Assign
+                    </button>
                   </div>
                 </label>
-                <button className="start-review" onClick={p.start}>
+                {p.errors.reviewer && (
+                  <p className="field-error" id="reviewer-error">
+                    {p.errors.reviewer}
+                  </p>
+                )}
+                <button
+                  className="start-review"
+                  onClick={p.start}
+                  disabled={!s.assignee || s.status === "In review"}
+                >
                   Begin review
                 </button>
-                <fieldset>
+                {p.errors.status && (
+                  <p className="field-error">{p.errors.status}</p>
+                )}
+                <ul
+                  className="decision-requirements"
+                  aria-label="Decision requirements"
+                >
+                  <li className={s.assignee ? "met" : ""}>Reviewer assigned</li>
+                  <li className={s.status === "In review" ? "met" : ""}>
+                    Review in progress
+                  </li>
+                  <li className={p.resolution ? "met" : ""}>
+                    Disposition selected
+                  </li>
+                  <li className={p.rationale.trim().length >= 20 ? "met" : ""}>
+                    Rationale meets minimum
+                  </li>
+                </ul>
+                <fieldset className={p.errors.resolution ? "has-error" : ""}>
                   <legend>Disposition</legend>
                   {[
                     "Accept documented exception",
@@ -954,18 +1038,45 @@ function ReviewView(p: {
                     </label>
                   ))}
                 </fieldset>
+                {p.errors.resolution && (
+                  <p className="field-error" id="resolution-error">
+                    {p.errors.resolution}
+                  </p>
+                )}
                 <label>
-                  Required rationale
+                  <span className="rationale-label">
+                    Required rationale
+                    <small
+                      className={p.rationale.trim().length >= 20 ? "valid" : ""}
+                    >
+                      {p.rationale.trim().length}/20 minimum
+                    </small>
+                  </span>
                   <textarea
                     value={p.rationale}
                     onChange={(e) => p.setRationale(e.target.value)}
                     placeholder="Reference the evidence considered and explain the decision."
+                    aria-invalid={Boolean(p.errors.rationale)}
+                    aria-describedby="rationale-error"
                   />
                 </label>
-                <button className="primary decision-submit" onClick={p.decide}>
+                {p.errors.rationale && (
+                  <p className="field-error" id="rationale-error">
+                    {p.errors.rationale}
+                  </p>
+                )}
+                <button
+                  className="primary decision-submit"
+                  onClick={p.decide}
+                  disabled={!p.canSubmit}
+                >
                   Record accountable decision
                 </button>
-                {p.notice && <p className="form-notice">{p.notice}</p>}
+                {p.notice && (
+                  <p className="form-notice" aria-live="polite">
+                    {p.notice}
+                  </p>
+                )}
               </>
             ) : (
               <div className="recorded-decision">

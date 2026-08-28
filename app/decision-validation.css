@@ -1,0 +1,57 @@
+.review-progress {
+  margin: 7px 0 0;
+  color: #647d8a;
+  font-size: 12px;
+}
+.decision-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.decision-card input[aria-invalid="true"],
+.decision-card textarea[aria-invalid="true"],
+.decision-card fieldset.has-error {
+  box-shadow: 0 0 0 2px rgba(184, 57, 57, 0.22);
+}
+.field-error {
+  margin: -7px 0 13px;
+  color: #a33030;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.decision-requirements {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 12px;
+  margin: 2px 0 18px;
+  padding: 0;
+  list-style: none;
+}
+.decision-requirements li {
+  color: #6e808a;
+  font-size: 11px;
+}
+.decision-requirements li::before {
+  content: "○";
+  margin-right: 6px;
+}
+.decision-requirements li.met {
+  color: #2d7254;
+  font-weight: 650;
+}
+.decision-requirements li.met::before {
+  content: "✓";
+}
+.rationale-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rationale-label small {
+  color: #a33030;
+  font-size: 11px;
+  font-weight: 600;
+}
+.rationale-label small.valid {
+  color: #2d7254;
+}

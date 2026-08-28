@@ -21,7 +21,7 @@ class ReviewUpdate(BaseModel):
     status:Optional[str]=None
     assigned_to:Optional[str]=Field(default=None,max_length=100)
     resolution:Optional[str]=None
-    rationale:Optional[str]=Field(default=None,max_length=2000)
+    rationale:Optional[str]=Field(default=None,min_length=20,max_length=2000)
     retest_status:Optional[str]=Field(default=None,pattern="^(pending|passed|failed|not_required)$")
 
 def rows(sql,args=()): return [dict(r) for r in connect().execute(sql,args).fetchall()]
