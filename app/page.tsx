@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { geoNaturalEarth1, geoPath } from "d3-geo";
+import { feature } from "topojson-client";
+import worldCountries from "world-atlas/countries-110m.json";
 
 type View = "Runs" | "Review queue" | "Release readiness";
 type Status = "Open" | "Assigned" | "In review" | "Resolved" | "Rejected";
@@ -20,6 +23,8 @@ type ReviewCase = {
   status: Status;
   assignee: string;
   priority: "High" | "Medium";
+  awardAmount?: number;
+  awardCurrency?: string;
   resolution?: string;
   rationale?: string;
   events: Event[];
@@ -40,6 +45,21 @@ type ProjectContext = {
   sector?: string;
   approvalDate?: string;
   status?: string;
+};
+type CountryContext = {
+  name: string;
+  code: string;
+  flag: string;
+  flagAlt: string;
+  region: string;
+  currencies: string[];
+  population?: number;
+  gdp?: number;
+};
+type MapCountry = {
+  name: { common: string; official: string };
+  cca3: string;
+  ccn3?: string;
 };
 
 const casesSeed: ReviewCase[] = [
@@ -461,6 +481,10 @@ export default function Workbench() {
         {view === "Runs" && (
           <RunView
             onReview={() => setView("Review queue")}
+            onMadagascar={() => {
+              setSelectedId("REV-00003");
+              setView("Review queue");
+            }}
             onReadiness={() => setView("Release readiness")}
             completed={completed}
           />
@@ -666,10 +690,12 @@ export default function Workbench() {
 
 function RunView({
   onReview,
+  onMadagascar,
   onReadiness,
   completed,
 }: {
   onReview: () => void;
+  onMadagascar: () => void;
   onReadiness: () => void;
   completed: number;
 }) {
@@ -703,6 +729,7 @@ function RunView({
           </span>
         </div>
       </section>
+      <GlobalRecordMap onMadagascar={onMadagascar} />
       <div className="page runs-page">
         <section className="decision-banner">
           <div>
@@ -904,6 +931,125 @@ function RunView({
   );
 }
 
+function GlobalRecordMap({ onMadagascar }: { onMadagascar: () => void }) {
+  const [countryLookup, setCountryLookup] = useState<Map<string, MapCountry>>(
+    new Map(),
+  );
+  const [recordCounts, setRecordCounts] = useState<Map<string, number>>(
+    new Map(),
+  );
+  const [mapStatus, setMapStatus] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const geography = useMemo(() => {
+    const collection = feature(
+      worldCountries as never,
+      (worldCountries as { objects: { countries: never } }).objects.countries,
+    );
+    return collection.features;
+  }, []);
+  const path = useMemo(
+    () =>
+      geoPath(
+        geoNaturalEarth1().fitSize([960, 420], {
+          type: "FeatureCollection",
+          features: geography,
+        } as never),
+      ),
+    [geography],
+  );
+  useEffect(() => {
+    Promise.all([
+      fetch("https://restcountries.com/v3.1/all?fields=name,cca3,ccn3").then(
+        (r) => {
+          if (!r.ok) throw new Error("Country service unavailable");
+          return r.json() as Promise<MapCountry[]>;
+        },
+      ),
+      fetch("/data/retrieval-corpus.json").then((r) => r.json()),
+    ])
+      .then(([countries, corpus]) => {
+        const byName = new Map<string, MapCountry>();
+        countries.forEach((country) => {
+          byName.set(country.name.common.toLowerCase(), country);
+          byName.set(country.name.official.toLowerCase(), country);
+        });
+        const counts = new Map<string, number>();
+        (corpus.records as CorpusRecord[]).forEach((record) => {
+          const label = record.metadata.country?.trim().toLowerCase();
+          const country = label ? byName.get(label) : undefined;
+          if (country?.ccn3)
+            counts.set(country.ccn3, (counts.get(country.ccn3) || 0) + 1);
+        });
+        setCountryLookup(byName);
+        setRecordCounts(counts);
+        setMapStatus("ready");
+      })
+      .catch(() => setMapStatus("unavailable"));
+  }, []);
+  const madagascarCode = countryLookup.get("madagascar")?.ccn3;
+  return (
+    <section className="global-map-section">
+      <div className="map-copy">
+        <span className="live-indicator">
+          <i /> Public record geography
+        </span>
+        <h2>A global migration, grounded in source countries</h2>
+        <p>
+          Country shapes come from the open world-atlas dataset. Record
+          locations are matched against REST Countries and the locally indexed
+          World Bank evidence corpus.
+        </p>
+        <div className="map-legend">
+          <span>
+            <i className="indexed" /> Indexed evidence
+          </span>
+          <span>
+            <i className="exception" /> Open exception
+          </span>
+        </div>
+        <button onClick={onMadagascar}>Review the Madagascar exception</button>
+      </div>
+      <div
+        className="world-map"
+        aria-label="World map of indexed procurement evidence"
+      >
+        <svg
+          viewBox="0 0 960 420"
+          role="img"
+          aria-label="Countries represented in the evidence index"
+        >
+          {geography.map((country) => {
+            const id = String(country.id).padStart(3, "0");
+            const count = recordCounts.get(id) || 0;
+            const isException = id === madagascarCode;
+            return (
+              <path
+                key={id}
+                d={path(country) || undefined}
+                className={`${count ? "has-records" : ""} ${isException ? "has-exception" : ""}`}
+              >
+                <title>
+                  {count
+                    ? `${count} indexed evidence records`
+                    : "No matched records"}
+                </title>
+              </path>
+            );
+          })}
+        </svg>
+        {mapStatus !== "ready" && (
+          <p>
+            {mapStatus === "loading"
+              ? "Matching record geography…"
+              : "Live country matching is temporarily unavailable."}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ReviewView(p: {
   queue: ReviewCase[];
   selected: ReviewCase;
@@ -932,6 +1078,13 @@ function ReviewView(p: {
   const [projectContextStatus, setProjectContextStatus] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
+  const [countryContext, setCountryContext] = useState<CountryContext | null>(
+    null,
+  );
+  const [countryContextStatus, setCountryContextStatus] = useState<
+    "loading" | "ready" | "regional" | "unavailable"
+  >("loading");
+  const [usdEquivalent, setUsdEquivalent] = useState<number | null>(null);
   useEffect(() => {
     let active = true;
     setProjectContextStatus("loading");
@@ -965,6 +1118,70 @@ function ReviewView(p: {
       active = false;
     };
   }, [s.projectId]);
+  useEffect(() => {
+    let active = true;
+    setCountryContext(null);
+    setCountryContextStatus("loading");
+    setUsdEquivalent(null);
+    if (/region|africa$/i.test(s.country) && s.country !== "Madagascar") {
+      setCountryContextStatus("regional");
+      return () => {
+        active = false;
+      };
+    }
+    fetch(
+      `https://restcountries.com/v3.1/name/${encodeURIComponent(s.country)}?fullText=true&fields=name,flags,region,currencies,cca2`,
+    )
+      .then((response) => {
+        if (!response.ok) throw new Error("Country context unavailable");
+        return response.json();
+      })
+      .then(async (countries) => {
+        const country = countries?.[0];
+        if (!country) throw new Error("Country not returned");
+        const [populationResponse, gdpResponse] = await Promise.all([
+          fetch(
+            `https://api.worldbank.org/v2/country/${country.cca2}/indicator/SP.POP.TOTL?format=json&mrnev=1`,
+          ),
+          fetch(
+            `https://api.worldbank.org/v2/country/${country.cca2}/indicator/NY.GDP.MKTP.CD?format=json&mrnev=1`,
+          ),
+        ]);
+        const [populationPayload, gdpPayload] = await Promise.all([
+          populationResponse.json(),
+          gdpResponse.json(),
+        ]);
+        if (!active) return;
+        setCountryContext({
+          name: country.name.common,
+          code: country.cca2,
+          flag: country.flags?.svg,
+          flagAlt: country.flags?.alt || `Flag of ${country.name.common}`,
+          region: country.region,
+          currencies: Object.keys(country.currencies || {}),
+          population: populationPayload?.[1]?.[0]?.value,
+          gdp: gdpPayload?.[1]?.[0]?.value,
+        });
+        setCountryContextStatus("ready");
+      })
+      .catch(() => {
+        if (active) setCountryContextStatus("unavailable");
+      });
+    if (s.awardAmount && s.awardCurrency && s.awardCurrency !== "USD") {
+      fetch(
+        `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(s.awardCurrency)}&symbols=USD`,
+      )
+        .then((response) => response.json())
+        .then((payload) => {
+          if (active && payload?.rates?.USD)
+            setUsdEquivalent(s.awardAmount! * payload.rates.USD);
+        })
+        .catch(() => setUsdEquivalent(null));
+    }
+    return () => {
+      active = false;
+    };
+  }, [s.country, s.awardAmount, s.awardCurrency]);
   const [queueQuery, setQueueQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -1200,6 +1417,97 @@ function ReviewView(p: {
                 <p>
                   The live context could not be retrieved. The official source
                   link remains available for verification.
+                </p>
+              )}
+            </section>
+            <section className="country-context" aria-live="polite">
+              <header>
+                <div>
+                  {countryContext?.flag && (
+                    <img
+                      src={countryContext.flag}
+                      alt={countryContext.flagAlt}
+                    />
+                  )}
+                  <div>
+                    <span>Public country context</span>
+                    <h4>{s.country}</h4>
+                  </div>
+                </div>
+                <div className="context-sources">
+                  <a href="https://restcountries.com/" target="_blank">
+                    REST Countries
+                  </a>
+                  <a
+                    href="https://datahelpdesk.worldbank.org/knowledgebase/articles/889392"
+                    target="_blank"
+                  >
+                    World Bank Indicators
+                  </a>
+                </div>
+              </header>
+              {countryContextStatus === "loading" && (
+                <p>Retrieving country and economic context…</p>
+              )}
+              {countryContextStatus === "regional" && (
+                <p>
+                  This record represents a regional operation, so country-level
+                  indicators are intentionally not inferred.
+                </p>
+              )}
+              {countryContextStatus === "unavailable" && (
+                <p>
+                  Public country context is temporarily unavailable. No values
+                  have been substituted.
+                </p>
+              )}
+              {countryContextStatus === "ready" && countryContext && (
+                <dl>
+                  <div>
+                    <dt>Region</dt>
+                    <dd>{countryContext.region}</dd>
+                  </div>
+                  <div>
+                    <dt>Currency</dt>
+                    <dd>
+                      {countryContext.currencies.join(", ") || "Not published"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Population</dt>
+                    <dd>
+                      {countryContext.population
+                        ? new Intl.NumberFormat("en", {
+                            notation: "compact",
+                          }).format(countryContext.population)
+                        : "Not returned"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>GDP</dt>
+                    <dd>
+                      {countryContext.gdp
+                        ? new Intl.NumberFormat("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                            notation: "compact",
+                            maximumFractionDigits: 1,
+                          }).format(countryContext.gdp)
+                        : "Not returned"}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+              {s.awardAmount && s.awardCurrency && (
+                <p className="currency-reference">
+                  Published award:{" "}
+                  {new Intl.NumberFormat("en", {
+                    style: "currency",
+                    currency: s.awardCurrency,
+                  }).format(s.awardAmount)}
+                  {usdEquivalent
+                    ? ` · ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(usdEquivalent)} at the latest Frankfurter reference rate`
+                    : " · USD reference rate unavailable"}
                 </p>
               )}
             </section>

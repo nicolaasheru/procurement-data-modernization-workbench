@@ -65,6 +65,15 @@ test("renders development preview metadata", async () => {
   assert.match(source, /Official project context/i);
   assert.match(source, /search\.worldbank\.org\/api\/v3\/projects/i);
   assert.match(source, /readiness-ring/i);
+  assert.match(source, /restcountries\.com\/v3\.1/i);
+  assert.match(source, /api\.worldbank\.org\/v2\/country/i);
+  assert.match(source, /api\.frankfurter\.dev/i);
+  assert.match(source, /world-atlas\/countries-110m/i);
+  assert.match(source, /A global migration, grounded in source countries/i);
+  assert.match(
+    source,
+    /country-level\s+indicators are intentionally not inferred/i,
+  );
   assert.match(source, /Begin review before recording a decision/i);
   assert.match(source, /Release decision package/i);
   assert.match(source, /Search trusted records/i);
