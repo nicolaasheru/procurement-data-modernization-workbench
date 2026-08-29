@@ -213,7 +213,52 @@ The transparent retrieval evaluation is intentionally small and prototype-scoped
 
 ## Deployment
 
-No external deployment or GitHub push has been performed. Recommended architecture: frontend on Vercel; the FastAPI/model service on Railway or another container host; managed PostgreSQL + pgvector on Neon, Supabase, or Railway; object storage for raw snapshots. The frontend reaches retrieval over HTTPS, while PostgreSQL remains private to the API service. Run the documented tests, set environment variables, execute a bounded seed, then deploy services separately. The public UI must disclose the exact processed scope.
+No external deployment or GitHub push has been performed. The included cloud configuration targets Railway for the FastAPI/model container and any PostgreSQL provider that permits `CREATE EXTENSION vector`. The frontend reaches retrieval over HTTPS, while PostgreSQL remains private to the API service.
+
+### Railway backend
+
+`Dockerfile` builds a non-root Python 3.12 container and caches the pinned Sentence Transformer model in the image. `.railway/railway.ts` uses Railway's current project-level Infrastructure-as-Code format to define the API, shared database and CORS variable linkage, replica count, and `/health/ready` gate. At startup, `scripts/start-backend.sh`:
+
+1. requires `DATABASE_URL`;
+2. applies the idempotent pgvector schema;
+3. embeds and upserts the curated evidence unless `SKIP_RETRIEVAL_INDEX=1`; and
+4. starts FastAPI with proxy-aware production settings.
+
+Install Railway's CLI, authenticate, and apply the checked-in project definition:
+
+```bash
+npm install
+railway login
+railway config plan
+railway config apply
+```
+
+Before planning, create two Railway shared variables: `DATABASE_URL`, pointing to a private PostgreSQL database built with pgvector (for example Railway's pgvector template, Neon, or Supabase), and `CORS_ORIGINS`, containing the deployed frontend origin. Railway's default PostgreSQL image does not bundle pgvector, so the configuration deliberately does not pretend that an ordinary Railway PostgreSQL helper is sufficient. The database role must permit `CREATE EXTENSION vector`. Deployment fails closed if the extension cannot be installed or the evidence index remains empty.
+
+The backend environment is:
+
+```text
+DATABASE_URL=<private PostgreSQL connection string>
+CORS_ORIGINS=https://<your-frontend-domain>
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+EMBEDDING_DIMENSIONS=384
+RETRIEVAL_MINIMUM_SCORE=0.25
+WEB_CONCURRENCY=1
+SKIP_RETRIEVAL_INDEX=0
+```
+
+After the first successful deployment, set the frontend build variable `NEXT_PUBLIC_API_BASE_URL` to the Railway public HTTPS URL. Keep `SKIP_RETRIEVAL_INDEX=0` when source records changed; it can be set to `1` for later code-only restarts after verifying that the correct model index already exists.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes and pull requests with four gates:
+
+- backend unit and workflow tests;
+- frontend production build and rendered-interface test;
+- a real Sentence Transformer round trip against a pgvector PostgreSQL service; and
+- construction of the deployable backend container.
+
+The model cache is reused between CI runs. A failed pgvector round trip prevents the container gate from passing.
 
 ## Production roadmap
 

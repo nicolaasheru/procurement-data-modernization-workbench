@@ -1,0 +1,13 @@
+.git
+.github
+.next
+.pytest_cache
+.venv
+dist
+node_modules
+outputs
+work
+*.pyc
+__pycache__
+.env
+*.zip

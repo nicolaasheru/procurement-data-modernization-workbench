@@ -2,7 +2,7 @@ import json
 import pytest
 
 from backend.app.pipeline import connect
-from backend.app.retrieval import PgVectorRetrieval, RetrievalConfig, RetrievalConfigurationError
+from backend.app.retrieval import PgVectorRetrieval, RetrievalConfig, RetrievalConfigurationError, pgvector_readiness
 
 
 class FakeEmbedder:
@@ -75,6 +75,22 @@ def test_pgvector_migration_installs_extension_schema_and_dimension():
 def test_pgvector_health_reports_extension_model_and_index_count():
     result=service(FakeConnection()).health()
     assert result=={"status":"ok","backend":"postgresql+pgvector","pgvector_version":"0.8.1","embedding_model":"test/model-v1","dimensions":3,"indexed_documents":7}
+
+
+def test_lightweight_cloud_readiness_checks_extension_and_index_without_loading_model():
+    config=RetrievalConfig("postgresql://test",model_name="test/model-v1",dimensions=3)
+    result=pgvector_readiness(config,lambda:FakeConnection())
+    assert result["status"]=="ready" and result["indexed_documents"]==7
+
+
+def test_cloud_readiness_rejects_empty_index():
+    class EmptyConnection(FakeConnection):
+        def execute(self,sql,params=None):
+            if "count(*) count" in sql: return Result([{"count":0}])
+            return super().execute(sql,params)
+    config=RetrievalConfig("postgresql://test",model_name="test/model-v1",dimensions=3)
+    with pytest.raises(RetrievalConfigurationError,match="empty"):
+        pgvector_readiness(config,lambda:EmptyConnection())
 
 
 def test_retrieval_requires_database_configuration(monkeypatch):

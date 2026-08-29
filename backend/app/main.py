@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from .pipeline import DB, CONTROLS, connect, ingest_sample, create_review_case, update_review_case, get_review_case, get_migration_evidence
 from .mappings import MappingError, list_mappings, load_mapping
-from .retrieval import PgVectorRetrieval, RetrievalConfigurationError
+from .retrieval import PgVectorRetrieval, RetrievalConfigurationError, pgvector_readiness
 
 app=FastAPI(title="Procurement Data Modernization Workbench API",version="0.1.0")
 origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS","http://localhost:3000,http://localhost:5173").split(",") if origin.strip()]
@@ -37,6 +37,10 @@ def health(): return {"status":"ok","operational_database":DB.exists(),"retrieva
 def retrieval_health():
     try: return PgVectorRetrieval().health()
     except RetrievalConfigurationError as exc: raise HTTPException(503,str(exc))
+@app.get("/health/ready")
+def ready():
+    try: return pgvector_readiness()
+    except (RetrievalConfigurationError,Exception) as exc: raise HTTPException(503,f"Retrieval backend is not ready: {exc}")
 @app.get("/ingestion/runs")
 def runs(limit:int=Query(20,ge=1,le=100)): return rows("select * from ingestion_runs order by started_at desc limit ?",(limit,))
 @app.get("/mappings")

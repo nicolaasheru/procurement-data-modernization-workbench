@@ -60,6 +60,23 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
 
 
+def pgvector_readiness(config: RetrievalConfig|None=None,connection_factory: Callable|None=None) -> dict:
+    config=config or RetrievalConfig.from_env()
+    if connection_factory is None:
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise RetrievalConfigurationError("psycopg is required for retrieval readiness checks") from exc
+        connection_factory=lambda: psycopg.connect(config.database_url,row_factory=dict_row,connect_timeout=5)
+    with connection_factory() as connection:
+        extension=connection.execute("select extversion from pg_extension where extname='vector'").fetchone()
+        if not extension: raise RetrievalConfigurationError("pgvector extension is not installed")
+        indexed=connection.execute("select count(*) count from retrieval_documents where embedding_model=%s",(config.model_name,)).fetchone()["count"]
+    if indexed<1: raise RetrievalConfigurationError("retrieval index is empty")
+    return {"status":"ready","backend":"postgresql+pgvector","embedding_model":config.model_name,"indexed_documents":indexed}
+
+
 class PgVectorRetrieval:
     def __init__(self,config: RetrievalConfig|None=None,embedder: Embedder|None=None,connection_factory: Callable|None=None):
         self.config=config or RetrievalConfig.from_env()
