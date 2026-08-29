@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .pipeline import DB, CONTROLS, connect, ingest_sample, create_review_case, update_review_case, get_review_case, get_migration_evidence
 from .mappings import MappingError, list_mappings, load_mapping
 from .retrieval import PgVectorRetrieval, RetrievalConfigurationError, pgvector_readiness
+from .uat import SCENARIOS, execute_uat, get_uat_execution, list_uat_executions, sign_off_uat
 
 app=FastAPI(title="Procurement Data Modernization Workbench API",version="0.1.0")
 origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS","http://localhost:3000,http://localhost:5173").split(",") if origin.strip()]
@@ -29,6 +30,14 @@ class ReviewUpdate(BaseModel):
     resolution:Optional[str]=None
     rationale:Optional[str]=Field(default=None,min_length=20,max_length=2000)
     retest_status:Optional[str]=Field(default=None,pattern="^(pending|passed|failed|not_required)$")
+class UatExecutionCreate(BaseModel):
+    tester:str=Field(min_length=2,max_length=100)
+    release_id:str=Field(min_length=2,max_length=100)
+    environment:str=Field(default="production",pattern="^(development|staging|production)$")
+    run_id:Optional[str]=None
+class UatSignOff(BaseModel):
+    approver:str=Field(min_length=2,max_length=100)
+    note:str=Field(min_length=20,max_length=2000)
 
 def rows(sql,args=()): return [dict(r) for r in connect().execute(sql,args).fetchall()]
 @app.get("/health")
@@ -101,3 +110,20 @@ def revise_review(case_id:str,req:ReviewUpdate):
     try: update_review_case(case_id,req.actor,req.status,req.assigned_to,req.resolution,req.rationale,req.retest_status)
     except ValueError as exc: raise HTTPException(400,str(exc))
     return get_review_case(case_id)
+@app.get("/uat/scenarios")
+def uat_scenarios(): return {"suite_version":"1.0.0","scenarios":SCENARIOS}
+@app.get("/uat/executions")
+def uat_executions(limit:int=Query(20,ge=1,le=100)): return {"executions":list_uat_executions(limit)}
+@app.post("/uat/executions",status_code=201)
+def run_uat(req:UatExecutionCreate):
+    try: return execute_uat(req.tester,req.release_id,req.environment,req.run_id)
+    except ValueError as exc: raise HTTPException(400,str(exc))
+@app.get("/uat/executions/{execution_id}")
+def uat_execution(execution_id:str):
+    result=get_uat_execution(execution_id)
+    if not result: raise HTTPException(404,"UAT execution not found")
+    return result
+@app.post("/uat/executions/{execution_id}/sign-off")
+def uat_sign_off(execution_id:str,req:UatSignOff):
+    try: return sign_off_uat(execution_id,req.approver,req.note)
+    except ValueError as exc: raise HTTPException(400,str(exc))

@@ -61,6 +61,36 @@ type MappingField = {
   handling: string;
   required: boolean;
 };
+type UatResult = {
+  result_id: string;
+  scenario_id: string;
+  title: string;
+  status: "passed" | "failed";
+  expected: string;
+  observed: string;
+  evidence: Record<string, unknown>;
+};
+type UatPackage = {
+  execution: {
+    execution_id: string;
+    release_id: string;
+    run_id: string;
+    environment: string;
+    tester: string;
+    completed_at: string;
+    status: "passed" | "failed";
+    suite_version: string;
+    evidence_hash: string;
+    signed_off_by?: string | null;
+    signed_off_at?: string | null;
+    sign_off_note?: string | null;
+  };
+  results: UatResult[];
+};
+const isUatAccepted = (value: UatPackage | null) =>
+  Boolean(
+    value?.execution.status === "passed" && value.execution.signed_off_at,
+  );
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
@@ -1925,24 +1955,30 @@ function ReleaseView({
   ready: boolean;
   onReview: () => void;
 }) {
-  const passedGates = ready ? 5 : 3;
-  const readinessPercent = passedGates * 20;
+  const [uatAccepted, setUatAccepted] = useState(false);
+  const releaseReady = ready && uatAccepted;
+  const passedGates = 3 + (ready ? 2 : 0) + (uatAccepted ? 1 : 0);
+  const readinessPercent = Math.round((passedGates / 6) * 100);
   return (
     <div className="page release-page">
-      <section className={`release-hero ${ready ? "ready" : "blocked"}`}>
+      <section className={`release-hero ${releaseReady ? "ready" : "blocked"}`}>
         <div>
           <h1>
-            {ready
+            {releaseReady
               ? "Ready for controlled release"
-              : `${total - completed} review decisions remain open.`}
+              : !ready
+                ? `${total - completed} review decisions remain open.`
+                : "UAT execution and sign-off remain open."}
           </h1>
           <p>
-            {ready
+            {releaseReady
               ? "The evidence package is complete for this bounded rehearsal scope."
-              : "Reconciliation has passed, but the selected exception scope must be adjudicated before readiness can be confirmed."}
+              : !ready
+                ? "Reconciliation has passed, but the selected exception scope must be adjudicated before readiness can be confirmed."
+                : "Run the acceptance scenarios against the migration evidence and obtain a named release sign-off."}
           </p>
         </div>
-        <b>{ready ? "Ready" : "Pending"}</b>
+        <b>{releaseReady ? "Ready" : "Pending"}</b>
       </section>
       <section className="criteria">
         <header>
@@ -1950,7 +1986,7 @@ function ReleaseView({
             <h2>Release decision package</h2>
           </div>
           <div
-            className={`readiness-ring ${ready ? "complete" : ""}`}
+            className={`readiness-ring ${releaseReady ? "complete" : ""}`}
             style={
               {
                 "--progress": `${readinessPercent * 3.6}deg`,
@@ -1988,6 +2024,11 @@ function ReleaseView({
           detail="Raw source snapshot and checksum are retained."
           state="Passed"
         />
+        <Criterion
+          title="Executed UAT evidence"
+          detail={uatAccepted ? "Passing acceptance execution has named release sign-off." : "Run the acceptance suite and record a substantive sign-off."}
+          state={uatAccepted ? "Passed" : "Action required"}
+        />
       </section>
       {!ready && (
         <section className="release-action">
@@ -1999,16 +2040,192 @@ function ReleaseView({
           </button>
         </section>
       )}
+      <UatEvidence onAcceptanceChange={setUatAccepted} />
       <section className="scope-boundary">
         <b>Prototype boundary</b>
         <p>
           This readiness assessment covers the verified 600-record rehearsal and
           three selected analyst cases. Institutional release would additionally
           require authenticated approvals, complete UAT evidence, environment
-          controls and stakeholder sign-off.
+          controls and stakeholder approvals beyond this recorded UAT sign-off.
         </p>
       </section>
     </div>
+  );
+}
+
+function UatEvidence({
+  onAcceptanceChange,
+}: {
+  onAcceptanceChange: (accepted: boolean) => void;
+}) {
+  const [tester, setTester] = useState("");
+  const [releaseId, setReleaseId] = useState("release-2026.08");
+  const [approver, setApprover] = useState("");
+  const [signOffNote, setSignOffNote] = useState("");
+  const [uat, setUat] = useState<UatPackage | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE}/uat/executions?limit=1`)
+      .then((response) => {
+        if (!response.ok) throw new Error();
+        return response.json();
+      })
+      .then(async (payload: { executions: Array<{ execution_id: string }> }) => {
+        if (!payload.executions.length) return;
+        const response = await fetch(
+          `${API_BASE}/uat/executions/${payload.executions[0].execution_id}`,
+        );
+        if (!response.ok) throw new Error();
+        const value = (await response.json()) as UatPackage;
+        if (active) {
+          setUat(value);
+          onAcceptanceChange(isUatAccepted(value));
+        }
+      })
+      .catch(() => {
+        if (active) setMessage("No recorded UAT execution is available yet.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [onAcceptanceChange]);
+
+  async function runUat() {
+    if (tester.trim().length < 2 || releaseId.trim().length < 2) {
+      setState("error");
+      setMessage("Enter a tester name and release ID before executing UAT.");
+      return;
+    }
+    setState("loading");
+    setMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/uat/executions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tester: tester.trim(),
+          release_id: releaseId.trim(),
+          environment: "production",
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "UAT execution failed");
+      setUat(payload as UatPackage);
+      onAcceptanceChange(isUatAccepted(payload as UatPackage));
+      setState("idle");
+      setMessage("Acceptance scenarios executed and evidence recorded.");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "UAT execution failed.");
+    }
+  }
+
+  async function signOff() {
+    if (!uat) return;
+    if (approver.trim().length < 2 || signOffNote.trim().length < 20) {
+      setState("error");
+      setMessage("Enter an approver and a sign-off note of at least 20 characters.");
+      return;
+    }
+    setState("loading");
+    try {
+      const response = await fetch(
+        `${API_BASE}/uat/executions/${uat.execution.execution_id}/sign-off`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            approver: approver.trim(),
+            note: signOffNote.trim(),
+          }),
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "Sign-off failed");
+      setUat(payload as UatPackage);
+      onAcceptanceChange(isUatAccepted(payload as UatPackage));
+      setState("idle");
+      setMessage("UAT sign-off recorded. The execution now satisfies the release gate.");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "Sign-off failed.");
+    }
+  }
+
+  return (
+    <section className="uat-runner">
+      <header>
+        <div>
+          <h2>Acceptance test evidence</h2>
+          <p>Execute the business acceptance scenarios against the current migration evidence, then record accountable approval.</p>
+        </div>
+        <span className={uat?.execution.signed_off_at ? "signed" : "unsigned"}>
+          {uat?.execution.signed_off_at ? "Signed off" : uat ? "Awaiting sign-off" : "Not executed"}
+        </span>
+      </header>
+      <div className="uat-execution-form">
+        <label>
+          Tester
+          <input value={tester} onChange={(event) => setTester(event.target.value)} placeholder="Full name" />
+        </label>
+        <label>
+          Release ID
+          <input value={releaseId} onChange={(event) => setReleaseId(event.target.value)} />
+        </label>
+        <button onClick={runUat} disabled={state === "loading"}>
+          {state === "loading" ? "Working…" : "Execute UAT"}
+        </button>
+      </div>
+      {message && <p className={state === "error" ? "uat-message error" : "uat-message"}>{message}</p>}
+      {uat && (
+        <>
+          <div className="uat-summary">
+            <span><small>Execution</small><b>{uat.execution.execution_id}</b></span>
+            <span><small>Suite</small><b>{uat.execution.suite_version}</b></span>
+            <span><small>Run</small><b>{uat.execution.run_id}</b></span>
+            <span><small>Fingerprint</small><b>{uat.execution.evidence_hash.slice(0, 12)}…</b></span>
+          </div>
+          <div className="uat-results">
+            {uat.results.map((result) => (
+              <article key={result.scenario_id} className={result.status}>
+                <span>{result.status === "passed" ? "Passed" : "Failed"}</span>
+                <div>
+                  <small>{result.scenario_id}</small>
+                  <b>{result.title}</b>
+                  <p><strong>Expected</strong>{result.expected}</p>
+                  <p><strong>Observed</strong>{result.observed}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+          {uat.execution.status === "passed" && !uat.execution.signed_off_at && (
+            <div className="uat-signoff">
+              <label>
+                Release approver
+                <input value={approver} onChange={(event) => setApprover(event.target.value)} placeholder="Full name" />
+              </label>
+              <label>
+                Sign-off rationale
+                <textarea value={signOffNote} onChange={(event) => setSignOffNote(event.target.value)} placeholder="Confirm what was reviewed and accepted." />
+                <small>{signOffNote.trim().length}/20 minimum</small>
+              </label>
+              <button onClick={signOff} disabled={state === "loading"}>Record sign-off</button>
+            </div>
+          )}
+          {uat.execution.signed_off_at && (
+            <div className="uat-attestation">
+              <b>Approved by {uat.execution.signed_off_by}</b>
+              <p>{uat.execution.sign_off_note}</p>
+              <small>{uat.execution.signed_off_at}</small>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

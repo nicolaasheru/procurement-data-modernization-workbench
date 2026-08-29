@@ -88,6 +88,12 @@ test("renders development preview metadata", async () => {
   );
   assert.match(source, /Begin review before recording a decision/i);
   assert.match(source, /Release decision package/i);
+  assert.match(source, /Acceptance test evidence/i);
+  assert.match(source, /Execute UAT/i);
+  assert.match(source, /Expected/i);
+  assert.match(source, /Observed/i);
+  assert.match(source, /Record sign-off/i);
+  assert.match(source, /uat\/executions/i);
   assert.match(source, /Search trusted records/i);
   assert.doesNotMatch(source, /Can he engineer the migration/i);
   assert.doesNotMatch(source, /Guide me through it/i);

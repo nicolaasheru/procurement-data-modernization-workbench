@@ -30,9 +30,13 @@ create table if not exists review_events(event_id text primary key, case_id text
 create table if not exists mapping_executions(run_id text not null, mapping_id text not null, mapping_version text not null, mapping_hash text not null, executed_at text not null, record_count integer not null, primary key(run_id,mapping_id));
 create table if not exists record_dispositions(id integer primary key autoincrement, run_id text not null, record_type text not null, record_id text not null, disposition text not null check(disposition in ('quarantined','rejected')), reason text not null, payload text not null, created_at text not null);
 create table if not exists migration_evidence(run_id text primary key, generated_at text not null, reconciliation_status text not null, acceptance_status text not null, balance_delta integer not null, evidence_hash text not null, evidence_json text not null);
+create table if not exists uat_executions(execution_id text primary key,release_id text not null,run_id text,environment text not null,tester text not null,started_at text not null,completed_at text not null,status text not null,suite_version text not null,evidence_hash text not null,signed_off_by text,signed_off_at text,sign_off_note text);
+create table if not exists uat_results(result_id text primary key,execution_id text not null,scenario_id text not null,title text not null,status text not null,expected text not null,observed text not null,evidence_json text not null,executed_at text not null,foreign key(execution_id) references uat_executions(execution_id));
 create index if not exists idx_review_cases_status on review_cases(status);
 create index if not exists idx_review_events_case on review_events(case_id,occurred_at);
 create index if not exists idx_record_dispositions_run on record_dispositions(run_id,disposition);
+create index if not exists idx_uat_executions_release on uat_executions(release_id,completed_at);
+create index if not exists idx_uat_results_execution on uat_results(execution_id,scenario_id);
 """
 
 CONTROLS = {

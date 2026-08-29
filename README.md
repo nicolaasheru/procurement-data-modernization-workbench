@@ -191,6 +191,8 @@ The interface is organized around one operational outcome: determine whether a m
 1. Open **Runs** to inspect reconciliation, quality signals, lineage, and the next required action for the 5 August rehearsal.
 2. Open **Review queue**, assign a selected DQ-008 case, compare its source evidence, and record a disposition with a mandatory rationale.
 3. Open **Release readiness** to see which acceptance criteria passed and which analyst decisions still prevent completion.
+4. Execute the versioned UAT suite from **Release readiness**. The API records expected and observed outcomes, the tester, environment, linked migration run and a SHA-256 evidence fingerprint.
+5. A passing execution still requires a named approver and substantive sign-off note before the UAT release gate passes.
 4. Use **Search evidence** contextually when a review requires supporting records. The explorer returns cited records or no evidence; it does not fabricate an answer.
 
 The three selected review cases are a transparent prototype adjudication scope drawn from the verified DQ-008 results. The full run contains 47 duplicate-content signals and 113 non-blocking project-linkage warnings.
