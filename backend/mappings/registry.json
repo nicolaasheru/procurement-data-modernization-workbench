@@ -1,0 +1,18 @@
+{
+  "registry_version": "1.0.0",
+  "mappings": {
+    "procurement_notice": {
+      "active": "1.1.0",
+      "versions": {
+        "1.0.0": "procurement_notice/1.0.0.json",
+        "1.1.0": "procurement_notice/1.1.0.json"
+      }
+    },
+    "contract_award": {
+      "active": "1.0.0",
+      "versions": {
+        "1.0.0": "contract_award/1.0.0.json"
+      }
+    }
+  }
+}

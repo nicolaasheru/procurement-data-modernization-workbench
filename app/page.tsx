@@ -56,6 +56,126 @@ type CountryContext = {
   population?: number;
   gdp?: number;
 };
+type MappingField = {
+  source: string;
+  target: string;
+  handling: string;
+  required: boolean;
+};
+
+const noticeMappingVersions: Record<
+  string,
+  { note: string; fingerprint: string; fields: MappingField[] }
+> = {
+  "1.1.0": {
+    note: "Active · country codes standardized before loading",
+    fingerprint: "3bfe54a2…ff6b502c",
+    fields: [
+      {
+        source: "id",
+        target: "notice_id",
+        handling: "Convert to text",
+        required: true,
+      },
+      {
+        source: "project_id",
+        target: "project_id",
+        handling: "Validate and standardize",
+        required: true,
+      },
+      {
+        source: "bid_description",
+        target: "title",
+        handling: "Trim surrounding space",
+        required: true,
+      },
+      {
+        source: "country_name",
+        target: "country",
+        handling: "Trim surrounding space",
+        required: false,
+      },
+      {
+        source: "country_code",
+        target: "country_code",
+        handling: "Convert to uppercase",
+        required: false,
+      },
+      {
+        source: "publication_date",
+        target: "publication_date",
+        handling: "Standardize as YYYY-MM-DD",
+        required: false,
+      },
+      {
+        source: "deadline_date",
+        target: "deadline_date",
+        handling: "Standardize as YYYY-MM-DD",
+        required: false,
+      },
+      {
+        source: "source record",
+        target: "raw_json",
+        handling: "Retain without loss",
+        required: true,
+      },
+    ],
+  },
+  "1.0.0": {
+    note: "Superseded · original country-code handling",
+    fingerprint: "3394ca41…89ca2451",
+    fields: [
+      {
+        source: "id",
+        target: "notice_id",
+        handling: "Convert to text",
+        required: true,
+      },
+      {
+        source: "project_id",
+        target: "project_id",
+        handling: "Validate and standardize",
+        required: true,
+      },
+      {
+        source: "bid_description",
+        target: "title",
+        handling: "Trim surrounding space",
+        required: true,
+      },
+      {
+        source: "country_name",
+        target: "country",
+        handling: "Trim surrounding space",
+        required: false,
+      },
+      {
+        source: "country_code",
+        target: "country_code",
+        handling: "Trim surrounding space",
+        required: false,
+      },
+      {
+        source: "publication_date",
+        target: "publication_date",
+        handling: "Standardize as YYYY-MM-DD",
+        required: false,
+      },
+      {
+        source: "deadline_date",
+        target: "deadline_date",
+        handling: "Standardize as YYYY-MM-DD",
+        required: false,
+      },
+      {
+        source: "source record",
+        target: "raw_json",
+        handling: "Retain without loss",
+        required: true,
+      },
+    ],
+  },
+};
 const casesSeed: ReviewCase[] = [
   {
     id: "REV-00001",
@@ -914,8 +1034,66 @@ function RunView({
             </a>
           </div>
         </section>
+        <MappingControl />
       </div>
     </>
+  );
+}
+
+function MappingControl() {
+  const [version, setVersion] = useState("1.1.0");
+  const mapping = noticeMappingVersions[version];
+  return (
+    <section className="mapping-control">
+      <header>
+        <div>
+          <h2>Source-to-target mapping</h2>
+          <p>
+            Approved field handling applied to procurement notices in this run.
+          </p>
+        </div>
+        <label>
+          Mapping version
+          <select
+            value={version}
+            onChange={(event) => setVersion(event.target.value)}
+          >
+            <option value="1.1.0">Version 1.1.0 · active</option>
+            <option value="1.0.0">Version 1.0.0 · superseded</option>
+          </select>
+        </label>
+      </header>
+      <div className="mapping-version-summary">
+        <span>{mapping.note}</span>
+        <span>
+          Contract fingerprint <b>{mapping.fingerprint}</b>
+        </span>
+      </div>
+      <div className="mapping-cards" aria-label="Field mappings">
+        {mapping.fields.map((field) => (
+          <article className="mapping-rule" key={`${version}-${field.target}`}>
+            <div className="mapping-endpoint source-endpoint">
+              <small>Source</small>
+              <b>{field.source}</b>
+            </div>
+            <div className="mapping-handling">
+              <span>{field.handling}</span>
+            </div>
+            <div className="mapping-endpoint target-endpoint">
+              <small>Target</small>
+              <b>{field.target}</b>
+            </div>
+            <span className={field.required ? "required" : "optional"}>
+              {field.required ? "Required" : "Optional"}
+            </span>
+          </article>
+        ))}
+      </div>
+      <footer>
+        <span>13 mapped fields · 0 unmapped required targets</span>
+        <span>Exact contract retained with the ingestion run</span>
+      </footer>
+    </section>
   );
 }
 

@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
 from .pipeline import DB, CONTROLS, connect, ingest_sample, search, create_review_case, update_review_case, get_review_case
+from .mappings import MappingError, list_mappings, load_mapping
 
 app=FastAPI(title="Procurement Data Modernization Workbench API",version="0.1.0")
 class SearchRequest(BaseModel):
@@ -29,6 +30,14 @@ def rows(sql,args=()): return [dict(r) for r in connect().execute(sql,args).fetc
 def health(): return {"status":"ok","database":DB.exists(),"mode":"deterministic-retrieval"}
 @app.get("/ingestion/runs")
 def runs(limit:int=Query(20,ge=1,le=100)): return rows("select * from ingestion_runs order by started_at desc limit ?",(limit,))
+@app.get("/mappings")
+def mappings(): return {"mappings":list_mappings()}
+@app.get("/mappings/{mapping_id}")
+def mapping(mapping_id:str,version:Optional[str]=None):
+    try: return load_mapping(mapping_id,version)
+    except MappingError as exc: raise HTTPException(404,str(exc))
+@app.get("/ingestion/runs/{run_id}/mappings")
+def run_mappings(run_id:str): return {"run_id":run_id,"mappings":rows("select * from mapping_executions where run_id=? order by mapping_id",(run_id,))}
 @app.get("/quality/summary")
 def quality(): return {"issues":rows("select control_id,severity,result,count(*) affected from validation_results group by control_id,severity,result order by control_id"),"catalog":[{"control_id":k,"name":v[0],"severity":v[1],"recommended_handling":v[2]} for k,v in CONTROLS.items()]}
 @app.get("/quality/issues")

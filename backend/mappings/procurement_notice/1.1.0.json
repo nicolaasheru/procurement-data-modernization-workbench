@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "mapping_id": "procurement_notice",
+  "version": "1.1.0",
+  "supersedes": "1.0.0",
+  "change_note": "Normalize source country codes to uppercase before loading.",
+  "source": {
+    "system": "World Bank Procurement Notices",
+    "dataset_id": "DS00979",
+    "record_type": "notice"
+  },
+  "target": { "entity": "procurement_notices", "schema_version": "1.0.0" },
+  "fields": [
+    {
+      "source": "id",
+      "target": "notice_id",
+      "type": "string",
+      "required": true,
+      "transform": "to_string"
+    },
+    {
+      "source": "project_id",
+      "target": "project_id",
+      "type": "string",
+      "required": true,
+      "transform": "normalize_project_id"
+    },
+    {
+      "source": "bid_description",
+      "target": "title",
+      "type": "string",
+      "required": true,
+      "transform": "trim"
+    },
+    {
+      "source": "country_name",
+      "target": "country",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "country_code",
+      "target": "country_code",
+      "type": "string",
+      "required": false,
+      "transform": "uppercase"
+    },
+    {
+      "source": "procurement_category",
+      "target": "category",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "procurement_method",
+      "target": "method",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "publication_date",
+      "target": "publication_date",
+      "type": "date",
+      "required": false,
+      "transform": "normalize_date"
+    },
+    {
+      "source": "deadline_date",
+      "target": "deadline_date",
+      "type": "date",
+      "required": false,
+      "transform": "normalize_date"
+    },
+    {
+      "source": "sector",
+      "target": "sector",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "url",
+      "target": "official_url",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "$record",
+      "target": "raw_json",
+      "type": "json",
+      "required": true,
+      "transform": "serialize_json"
+    },
+    {
+      "source": "$computed.quality_score",
+      "target": "quality_score",
+      "type": "number",
+      "required": true,
+      "transform": "to_number"
+    }
+  ]
+}

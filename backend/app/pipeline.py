@@ -7,6 +7,8 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .mappings import apply_mapping, load_mapping
+
 ROOT = Path(__file__).resolve().parents[2]
 DB = ROOT / "data" / "workbench.db"
 RAW = ROOT / "data" / "raw"
@@ -26,6 +28,7 @@ create table if not exists document_chunks(chunk_id text primary key, record_typ
 create table if not exists retrieval_runs(run_id text primary key, query text, created_at text, result_count integer, latency_ms real, abstained integer);
 create table if not exists review_cases(case_id text primary key, validation_result_id integer not null, status text not null, priority text not null, assigned_to text, created_at text not null, updated_at text not null, resolution text, resolution_rationale text, decided_by text, decided_at text, retest_status text, foreign key(validation_result_id) references validation_results(id));
 create table if not exists review_events(event_id text primary key, case_id text not null, event_type text not null, actor text not null, occurred_at text not null, from_status text, to_status text, note text, metadata text, foreign key(case_id) references review_cases(case_id));
+create table if not exists mapping_executions(run_id text not null, mapping_id text not null, mapping_version text not null, mapping_hash text not null, executed_at text not null, record_count integer not null, primary key(run_id,mapping_id));
 create index if not exists idx_review_cases_status on review_cases(status);
 create index if not exists idx_review_events_case on review_events(case_id,occurred_at);
 """
@@ -103,19 +106,24 @@ def ingest_sample(notice_rows=300, award_rows=300, db_path: Path = DB):
         content=hashlib.sha256(f"{pid}|{r.get('bid_description')}|{pub}|{deadline}".encode()).hexdigest()
         if content in seen_content: record_issue(db,run,"DQ-008","notice",rid,"bid_description",r.get("bid_description"))
         seen_content.add(content); project_ids.add(pid); missing=sum(not r.get(k) for k in ("project_id","bid_description","country_name","procurement_category","publication_date","deadline_date")); q=round(1-missing/6,3)
-        db.execute("insert or replace into procurement_notices values(?,?,?,?,?,?,?,?,?,?,?,?,?)",(rid,pid,r.get("bid_description"),r.get("country_name"),r.get("country_code"),r.get("procurement_category"),r.get("procurement_method"),pub,deadline,r.get("sector"),r.get("url"),json.dumps(r),q)); accepted+=1
+        mapped=apply_mapping("procurement_notice",r,context={"computed":{"quality_score":q}}); m=mapped["record"]
+        db.execute("insert or replace into procurement_notices values(?,?,?,?,?,?,?,?,?,?,?,?,?)",(m["notice_id"],m["project_id"],m["title"],m["country"],m["country_code"],m["category"],m["method"],m["publication_date"],m["deadline_date"],m["sector"],m["official_url"],m["raw_json"],m["quality_score"])); accepted+=1
     for r in apayload.get("contract",[]):
         pid=norm_project(r.get("projectid")); rid=str(r.get("contr_id"));
         if not pid: quarantined+=1; record_issue(db,run,"DQ-002","award",rid,"projectid",r.get("projectid")); continue
-        project_ids.add(pid); supplier=", ".join(r.get("supp_name") or []); amount=float(r.get("total_contr_amnt") or 0)
+        project_ids.add(pid)
         # The awards feed exposes an award ID but no public award-detail page.
         # Link to the official dataset rather than inventing a notice-style URL.
         url="https://financesone.worldbank.org/contract-awards-in-investment-project-financing-since-fy-2020/DS00005"
-        db.execute("insert or replace into contract_awards values(?,?,?,?,?,?,?,?,?,?)",(rid,pid,r.get("contr_desc"),r.get("countryshortname"),r.get("procurement_group_desc"),supplier,amount,norm_date(r.get("contr_sgn_date")),url,json.dumps(r))); accepted+=1
+        mapped=apply_mapping("contract_award",r,context={"constants":{"official_awards_url":url}}); m=mapped["record"]
+        db.execute("insert or replace into contract_awards values(?,?,?,?,?,?,?,?,?,?)",(m["award_id"],m["project_id"],m["description"],m["country"],m["category"],m["supplier"],m["amount"],m["signed_date"],m["official_url"],m["raw_json"])); accepted+=1
         # Awards include official project-level metadata. Materializing it here
         # keeps the bounded run fast; the separately validated Projects API is
         # the production enrichment adapter.
         db.execute("insert or ignore into projects values(?,?,?,?,?,?,?,?)",(pid,r.get("project_name"),r.get("countryshortname"),r.get("regionname"),",".join(r.get("mjsecname") or []),0,f"https://projects.worldbank.org/en/projects-operations/project-detail/{pid}",json.dumps({"source":"contract-awards","project_name":r.get("project_name")})))
+    for mapping_id,count in (("procurement_notice",notice_rows),("contract_award",award_rows)):
+        mapping=load_mapping(mapping_id)
+        db.execute("insert or replace into mapping_executions values(?,?,?,?,?,?)",(run,mapping_id,mapping["version"],mapping["sha256"],utc_now(),count))
     db.commit(); build_curated(db)
     rows=notice_rows+award_rows; completed=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
     db.execute("update ingestion_runs set completed_at=?,status='completed',records_read=?,accepted=?,rejected=0,quarantined=?,checksum=?,schema_hash=? where run_id=?",(completed,rows,accepted,quarantined,checksum,schema_hash(npayload.get("data",[])),run)); db.commit(); return run

@@ -75,6 +75,13 @@ test("renders development preview metadata", async () => {
     source,
     /Live country matching is temporarily unavailable/i,
   );
+  assert.match(source, /Source-to-target mapping/i);
+  assert.match(source, /Version 1\.1\.0 · active/i);
+  assert.match(source, /Version 1\.0\.0 · superseded/i);
+  assert.match(source, /Contract fingerprint/i);
+  assert.match(source, /Exact contract retained with the ingestion run/i);
+  assert.match(source, /className="mapping-cards"/i);
+  assert.doesNotMatch(source, /<table>/i);
   assert.match(
     source,
     /country-level\s+indicators are intentionally not inferred/i,

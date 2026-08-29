@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "mapping_id": "contract_award",
+  "version": "1.0.0",
+  "source": { "system": "World Bank Contract Awards", "record_type": "award" },
+  "target": { "entity": "contract_awards", "schema_version": "1.0.0" },
+  "fields": [
+    {
+      "source": "contr_id",
+      "target": "award_id",
+      "type": "string",
+      "required": true,
+      "transform": "to_string"
+    },
+    {
+      "source": "projectid",
+      "target": "project_id",
+      "type": "string",
+      "required": true,
+      "transform": "normalize_project_id"
+    },
+    {
+      "source": "contr_desc",
+      "target": "description",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "countryshortname",
+      "target": "country",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "procurement_group_desc",
+      "target": "category",
+      "type": "string",
+      "required": false,
+      "transform": "trim"
+    },
+    {
+      "source": "supp_name",
+      "target": "supplier",
+      "type": "string",
+      "required": false,
+      "transform": "join_list"
+    },
+    {
+      "source": "total_contr_amnt",
+      "target": "amount",
+      "type": "number",
+      "required": false,
+      "transform": "to_number"
+    },
+    {
+      "source": "contr_sgn_date",
+      "target": "signed_date",
+      "type": "date",
+      "required": false,
+      "transform": "normalize_date"
+    },
+    {
+      "source": "$constant.official_awards_url",
+      "target": "official_url",
+      "type": "string",
+      "required": true,
+      "transform": "identity"
+    },
+    {
+      "source": "$record",
+      "target": "raw_json",
+      "type": "json",
+      "required": true,
+      "transform": "serialize_json"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import sqlite3
 import pytest
 from pathlib import Path
 from backend.app.pipeline import connect,norm_project,norm_date,vector,build_curated,search,create_review_case,update_review_case,get_review_case
+from backend.app.mappings import apply_mapping, list_mappings, load_mapping
 def test_normalization():
     assert norm_project(" p123456 ")=="P123456" and norm_project("123") is None
     assert norm_date("05-Aug-2026")=="2026-08-05" and norm_date("nope") is None
@@ -42,3 +43,23 @@ def test_review_decision_enforces_state_and_rationale(tmp_path):
     result=get_review_case(case_id,dbp)
     assert result["case"]["status"]=="in_review"
     assert [event["event_type"] for event in result["events"]]==["case_created","assigned","case_updated"]
+
+def test_versioned_mapping_registry_and_hashes_are_stable():
+    mappings={item["mapping_id"]:item for item in list_mappings()}
+    assert mappings["procurement_notice"]["active_version"]=="1.1.0"
+    assert mappings["procurement_notice"]["available_versions"]==["1.0.0","1.1.0"]
+    assert len(mappings["procurement_notice"]["sha256"])==64
+    assert load_mapping("procurement_notice")["sha256"]==load_mapping("procurement_notice","1.1.0")["sha256"]
+    assert load_mapping("procurement_notice","1.0.0")["sha256"]!=load_mapping("procurement_notice","1.1.0")["sha256"]
+
+def test_mapping_execution_returns_target_and_field_lineage():
+    source={"id":459873,"project_id":" p506439 ","bid_description":" Software ","country_name":"Madagascar","country_code":"mg","procurement_category":"Goods","procurement_method":"RFQ","publication_date":"05-Aug-2026","deadline_date":"2026-08-20","sector":"Technology","url":"https://example.org"}
+    result=apply_mapping("procurement_notice",source,context={"computed":{"quality_score":1}})
+    record=result["record"]
+    assert record["notice_id"]=="459873"
+    assert record["project_id"]=="P506439"
+    assert record["country_code"]=="MG"
+    assert record["publication_date"]=="2026-08-05"
+    assert record["quality_score"]==1.0
+    assert result["mapping_version"]=="1.1.0"
+    assert {item["target"] for item in result["lineage"]}==set(record)
