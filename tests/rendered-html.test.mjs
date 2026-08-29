@@ -69,7 +69,12 @@ test("renders development preview metadata", async () => {
   assert.match(source, /api\.worldbank\.org\/v2\/country/i);
   assert.match(source, /api\.frankfurter\.dev/i);
   assert.match(source, /world-atlas\/countries-110m/i);
-  assert.match(source, /A global migration, grounded in source countries/i);
+  assert.match(source, /Record coverage by country/i);
+  assert.doesNotMatch(source, /Country shapes come from/i);
+  assert.doesNotMatch(
+    source,
+    /Live country matching is temporarily unavailable/i,
+  );
   assert.match(
     source,
     /country-level\s+indicators are intentionally not inferred/i,

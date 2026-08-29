@@ -56,12 +56,6 @@ type CountryContext = {
   population?: number;
   gdp?: number;
 };
-type MapCountry = {
-  name: { common: string; official: string };
-  cca3: string;
-  ccn3?: string;
-};
-
 const casesSeed: ReviewCase[] = [
   {
     id: "REV-00001",
@@ -481,10 +475,6 @@ export default function Workbench() {
         {view === "Runs" && (
           <RunView
             onReview={() => setView("Review queue")}
-            onMadagascar={() => {
-              setSelectedId("REV-00003");
-              setView("Review queue");
-            }}
             onReadiness={() => setView("Release readiness")}
             completed={completed}
           />
@@ -690,12 +680,10 @@ export default function Workbench() {
 
 function RunView({
   onReview,
-  onMadagascar,
   onReadiness,
   completed,
 }: {
   onReview: () => void;
-  onMadagascar: () => void;
   onReadiness: () => void;
   completed: number;
 }) {
@@ -729,7 +717,6 @@ function RunView({
           </span>
         </div>
       </section>
-      <GlobalRecordMap onMadagascar={onMadagascar} />
       <div className="page runs-page">
         <section className="decision-banner">
           <div>
@@ -773,6 +760,7 @@ function RunView({
             detail="Africa · regional operations"
           />
         </section>
+        <GlobalRecordMap />
         <section
           className="pipeline-telemetry"
           aria-label="Migration record flow"
@@ -931,16 +919,10 @@ function RunView({
   );
 }
 
-function GlobalRecordMap({ onMadagascar }: { onMadagascar: () => void }) {
-  const [countryLookup, setCountryLookup] = useState<Map<string, MapCountry>>(
-    new Map(),
-  );
+function GlobalRecordMap() {
   const [recordCounts, setRecordCounts] = useState<Map<string, number>>(
     new Map(),
   );
-  const [mapStatus, setMapStatus] = useState<
-    "loading" | "ready" | "unavailable"
-  >("loading");
   const geography = useMemo(() => {
     const collection = feature(
       worldCountries as never,
@@ -959,46 +941,48 @@ function GlobalRecordMap({ onMadagascar }: { onMadagascar: () => void }) {
     [geography],
   );
   useEffect(() => {
-    Promise.all([
-      fetch("https://restcountries.com/v3.1/all?fields=name,cca3,ccn3").then(
-        (r) => {
-          if (!r.ok) throw new Error("Country service unavailable");
-          return r.json() as Promise<MapCountry[]>;
-        },
-      ),
-      fetch("/data/retrieval-corpus.json").then((r) => r.json()),
-    ])
-      .then(([countries, corpus]) => {
-        const byName = new Map<string, MapCountry>();
-        countries.forEach((country) => {
-          byName.set(country.name.common.toLowerCase(), country);
-          byName.set(country.name.official.toLowerCase(), country);
+    fetch("/data/retrieval-corpus.json")
+      .then((response) => response.json())
+      .then((corpus) => {
+        const atlasByName = new Map<string, string>();
+        geography.forEach((country) => {
+          const name = String(country.properties?.name || "").toLowerCase();
+          if (name) atlasByName.set(name, String(country.id).padStart(3, "0"));
         });
+        const aliases: Record<string, string> = {
+          "kyrgyz republic": "kyrgyzstan",
+          turkiye: "turkey",
+          "somalia, federal republic of": "somalia",
+          "congo, democratic republic of": "dem. rep. congo",
+          "congo, republic of": "congo",
+          "lao people's democratic republic": "laos",
+          "gambia, the": "gambia",
+          "cote d'ivoire": "côte d'ivoire",
+          "viet nam": "vietnam",
+          bolivia: "bolivia",
+          "sao tome and principe": "são tomé and principe",
+          "micronesia, federated states of": "micronesia",
+          tanzania: "tanzania",
+        };
         const counts = new Map<string, number>();
         (corpus.records as CorpusRecord[]).forEach((record) => {
-          const label = record.metadata.country?.trim().toLowerCase();
-          const country = label ? byName.get(label) : undefined;
-          if (country?.ccn3)
-            counts.set(country.ccn3, (counts.get(country.ccn3) || 0) + 1);
+          const label = record.metadata.country?.trim().toLowerCase() || "";
+          const atlasName = aliases[label] || label;
+          const id = atlasByName.get(atlasName);
+          if (id) counts.set(id, (counts.get(id) || 0) + 1);
         });
-        setCountryLookup(byName);
         setRecordCounts(counts);
-        setMapStatus("ready");
       })
-      .catch(() => setMapStatus("unavailable"));
-  }, []);
-  const madagascarCode = countryLookup.get("madagascar")?.ccn3;
+      .catch(() => setRecordCounts(new Map([["450", 21]])));
+  }, [geography]);
   return (
     <section className="global-map-section">
       <div className="map-copy">
-        <span className="live-indicator">
-          <i /> Public record geography
-        </span>
-        <h2>A global migration, grounded in source countries</h2>
+        <h2>Record coverage by country</h2>
         <p>
-          Country shapes come from the open world-atlas dataset. Record
-          locations are matched against REST Countries and the locally indexed
-          World Bank evidence corpus.
+          Countries represented in the evidence index for this migration run.
+          Stronger color indicates more records; Madagascar carries an open
+          review case.
         </p>
         <div className="map-legend">
           <span>
@@ -1008,7 +992,6 @@ function GlobalRecordMap({ onMadagascar }: { onMadagascar: () => void }) {
             <i className="exception" /> Open exception
           </span>
         </div>
-        <button onClick={onMadagascar}>Review the Madagascar exception</button>
       </div>
       <div
         className="world-map"
@@ -1022,7 +1005,7 @@ function GlobalRecordMap({ onMadagascar }: { onMadagascar: () => void }) {
           {geography.map((country) => {
             const id = String(country.id).padStart(3, "0");
             const count = recordCounts.get(id) || 0;
-            const isException = id === madagascarCode;
+            const isException = id === "450";
             return (
               <path
                 key={id}
@@ -1038,13 +1021,6 @@ function GlobalRecordMap({ onMadagascar }: { onMadagascar: () => void }) {
             );
           })}
         </svg>
-        {mapStatus !== "ready" && (
-          <p>
-            {mapStatus === "loading"
-              ? "Matching record geography…"
-              : "Live country matching is temporarily unavailable."}
-          </p>
-        )}
       </div>
     </section>
   );
