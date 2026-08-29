@@ -3,7 +3,7 @@ import sqlite3
 from typing import Optional
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
-from .pipeline import DB, CONTROLS, connect, ingest_sample, search, create_review_case, update_review_case, get_review_case
+from .pipeline import DB, CONTROLS, connect, ingest_sample, search, create_review_case, update_review_case, get_review_case, get_migration_evidence
 from .mappings import MappingError, list_mappings, load_mapping
 
 app=FastAPI(title="Procurement Data Modernization Workbench API",version="0.1.0")
@@ -38,6 +38,13 @@ def mapping(mapping_id:str,version:Optional[str]=None):
     except MappingError as exc: raise HTTPException(404,str(exc))
 @app.get("/ingestion/runs/{run_id}/mappings")
 def run_mappings(run_id:str): return {"run_id":run_id,"mappings":rows("select * from mapping_executions where run_id=? order by mapping_id",(run_id,))}
+@app.get("/ingestion/runs/{run_id}/evidence")
+def run_evidence(run_id:str):
+    evidence=get_migration_evidence(run_id)
+    if not evidence: raise HTTPException(404,"Migration acceptance evidence not found")
+    return evidence
+@app.get("/ingestion/runs/{run_id}/quarantine")
+def run_quarantine(run_id:str): return {"run_id":run_id,"records":rows("select record_type,record_id,disposition,reason,created_at from record_dispositions where run_id=? order by id",(run_id,))}
 @app.get("/quality/summary")
 def quality(): return {"issues":rows("select control_id,severity,result,count(*) affected from validation_results group by control_id,severity,result order by control_id"),"catalog":[{"control_id":k,"name":v[0],"severity":v[1],"recommended_handling":v[2]} for k,v in CONTROLS.items()]}
 @app.get("/quality/issues")

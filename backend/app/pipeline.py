@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .mappings import apply_mapping, load_mapping
+from .mappings import MappingError, apply_mapping, load_mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 DB = ROOT / "data" / "workbench.db"
@@ -29,8 +29,11 @@ create table if not exists retrieval_runs(run_id text primary key, query text, c
 create table if not exists review_cases(case_id text primary key, validation_result_id integer not null, status text not null, priority text not null, assigned_to text, created_at text not null, updated_at text not null, resolution text, resolution_rationale text, decided_by text, decided_at text, retest_status text, foreign key(validation_result_id) references validation_results(id));
 create table if not exists review_events(event_id text primary key, case_id text not null, event_type text not null, actor text not null, occurred_at text not null, from_status text, to_status text, note text, metadata text, foreign key(case_id) references review_cases(case_id));
 create table if not exists mapping_executions(run_id text not null, mapping_id text not null, mapping_version text not null, mapping_hash text not null, executed_at text not null, record_count integer not null, primary key(run_id,mapping_id));
+create table if not exists record_dispositions(id integer primary key autoincrement, run_id text not null, record_type text not null, record_id text not null, disposition text not null check(disposition in ('quarantined','rejected')), reason text not null, payload text not null, created_at text not null);
+create table if not exists migration_evidence(run_id text primary key, generated_at text not null, reconciliation_status text not null, acceptance_status text not null, balance_delta integer not null, evidence_hash text not null, evidence_json text not null);
 create index if not exists idx_review_cases_status on review_cases(status);
 create index if not exists idx_review_events_case on review_events(case_id,occurred_at);
+create index if not exists idx_record_dispositions_run on record_dispositions(run_id,disposition);
 """
 
 CONTROLS = {
@@ -80,6 +83,47 @@ def record_issue(db, run, control, rtype, rid, field, original, normalized=None)
     db.execute("insert into validation_results(run_id,control_id,severity,result,record_type,record_id,source_field,original_value,normalized_value,recommended_handling) values(?,?,?,?,?,?,?,?,?,?)",
                (run,control,severity,name,rtype,str(rid),field,str(original),str(normalized or ""),handling))
 
+def record_disposition(db, run, rtype, rid, disposition, reason, payload):
+    db.execute("insert into record_dispositions(run_id,record_type,record_id,disposition,reason,payload,created_at) values(?,?,?,?,?,?,?)",
+               (run,rtype,str(rid),disposition,reason,json.dumps(payload,ensure_ascii=False,sort_keys=True),utc_now()))
+    # Retain the legacy store for consumers that have not moved to the explicit
+    # disposition model yet.
+    db.execute("insert into rejected_records(run_id,record_type,record_id,reason,payload) values(?,?,?,?,?)",
+               (run,rtype,str(rid),f"{disposition}:{reason}",json.dumps(payload,ensure_ascii=False)))
+
+def create_migration_evidence(db, run, source_counts, loaded_counts):
+    run_row=db.execute("select * from ingestion_runs where run_id=?",(run,)).fetchone()
+    dispositions={r["disposition"]:r["count"] for r in db.execute(
+        "select disposition,count(*) count from record_dispositions where run_id=? group by disposition",(run,))}
+    mappings=[dict(r) for r in db.execute(
+        "select mapping_id,mapping_version,mapping_hash,record_count from mapping_executions where run_id=? order by mapping_id",(run,))]
+    source_total=sum(source_counts.values()); loaded_total=sum(loaded_counts.values())
+    quarantined=dispositions.get("quarantined",0); rejected=dispositions.get("rejected",0)
+    accounted=loaded_total+quarantined+rejected; delta=source_total-accounted
+    gates=[
+        {"id":"REC-001","label":"Record accounting balances","passed":delta==0,"evidence":f"{source_total} read = {loaded_total} loaded + {quarantined} quarantined + {rejected} rejected"},
+        {"id":"REC-002","label":"Source and target load counts reconcile","passed":loaded_total==run_row["accepted"],"evidence":f"{loaded_total} successful transformations recorded"},
+        {"id":"QUA-001","label":"Every excluded record is traceable","passed":quarantined+rejected==run_row["quarantined"]+run_row["rejected"],"evidence":f"{quarantined+rejected} disposition records retained"},
+        {"id":"MAP-001","label":"Mapping contracts are pinned","passed":len(mappings)==2 and all(m["mapping_hash"] for m in mappings),"evidence":f"{len(mappings)} versioned contracts recorded"},
+        {"id":"INT-001","label":"Source integrity evidence is present","passed":bool(run_row["checksum"] and run_row["schema_hash"]),"evidence":"Raw checksum and schema fingerprint retained"},
+        {"id":"ERR-001","label":"No transformation failures remain","passed":rejected==0,"evidence":f"{rejected} rejected records"},
+    ]
+    passed=all(g["passed"] for g in gates)
+    acceptance="accepted_with_quarantine" if passed and quarantined else "accepted" if passed else "blocked"
+    evidence={"run_id":run,"generated_at":utc_now(),"source_counts":source_counts,"loaded_counts":loaded_counts,
+              "records_read":source_total,"loaded":loaded_total,"quarantined":quarantined,"rejected":rejected,
+              "accounted":accounted,"balance_delta":delta,"reconciliation_status":"balanced" if delta==0 else "unbalanced",
+              "acceptance_status":acceptance,"mapping_executions":mappings,"gates":gates}
+    canonical=json.dumps(evidence,sort_keys=True,separators=(",",":")); fingerprint=hashlib.sha256(canonical.encode()).hexdigest()
+    evidence["evidence_hash"]=fingerprint
+    db.execute("insert or replace into migration_evidence values(?,?,?,?,?,?,?)",
+               (run,evidence["generated_at"],evidence["reconciliation_status"],acceptance,delta,fingerprint,json.dumps(evidence,sort_keys=True)))
+    db.commit(); return evidence
+
+def get_migration_evidence(run, db_path: Path = DB):
+    db=connect(db_path); row=db.execute("select evidence_json from migration_evidence where run_id=?",(run,)).fetchone()
+    return json.loads(row[0]) if row else None
+
 def ingest_sample(notice_rows=300, award_rows=300, db_path: Path = DB):
     db=connect(db_path); run=str(uuid.uuid4()); started=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
     db.execute("insert into ingestion_runs values(?,?,?,?,?,?,?,?,?,?,?)",(run,"official-world-bank-sample",started,None,"running",0,0,0,0,None,None)); db.commit()
@@ -90,8 +134,9 @@ def ingest_sample(notice_rows=300, award_rows=300, db_path: Path = DB):
     raw={"retrieved_at":started,"sources":[NOTICE_API,AWARD_API],"notices":npayload,"awards":apayload}
     raw_bytes=json.dumps(raw,ensure_ascii=False,sort_keys=True).encode(); checksum=hashlib.sha256(raw_bytes).hexdigest()
     RAW.mkdir(parents=True,exist_ok=True); (RAW/f"{run}.json").write_bytes(raw_bytes)
-    accepted=quarantined=0; project_ids=set(); seen_content=set()
-    for r in npayload.get("data",[]):
+    notice_records=npayload.get("data",[]); award_records=apayload.get("contract",[])
+    accepted=quarantined=rejected=0; notice_loaded=award_loaded=0; project_ids=set(); seen_content=set()
+    for r in notice_records:
         rid=str(r.get("id")); pid=norm_project(r.get("project_id")); pub=norm_date(r.get("publication_date")); deadline=norm_date(r.get("deadline_date")); invalid=[]
         if not r.get("project_id"): invalid.append(("DQ-001","project_id"))
         elif not pid: invalid.append(("DQ-002","project_id"))
@@ -99,34 +144,46 @@ def ingest_sample(notice_rows=300, award_rows=300, db_path: Path = DB):
         if r.get("publication_date") and not pub: invalid.append(("DQ-004","publication_date"))
         if r.get("deadline_date") and not deadline: invalid.append(("DQ-004","deadline_date"))
         if invalid:
-            quarantined+=1; db.execute("insert into rejected_records(run_id,record_type,record_id,reason,payload) values(?,?,?,?,?)",(run,"notice",rid,";".join(x[0] for x in invalid),json.dumps(r)))
-            for c,f in invalid: record_issue(db,run,c,"notice",rid,f,r.get(f)); continue
+            quarantined+=1; record_disposition(db,run,"notice",rid,"quarantined",";".join(x[0] for x in invalid),r)
+            for c,f in invalid: record_issue(db,run,c,"notice",rid,f,r.get(f))
+            continue
         if pub and deadline and deadline < pub: record_issue(db,run,"DQ-005","notice",rid,"deadline_date",r.get("deadline_date"),deadline)
         if not r.get("procurement_category"): record_issue(db,run,"DQ-006","notice",rid,"procurement_category",None)
         content=hashlib.sha256(f"{pid}|{r.get('bid_description')}|{pub}|{deadline}".encode()).hexdigest()
         if content in seen_content: record_issue(db,run,"DQ-008","notice",rid,"bid_description",r.get("bid_description"))
         seen_content.add(content); project_ids.add(pid); missing=sum(not r.get(k) for k in ("project_id","bid_description","country_name","procurement_category","publication_date","deadline_date")); q=round(1-missing/6,3)
-        mapped=apply_mapping("procurement_notice",r,context={"computed":{"quality_score":q}}); m=mapped["record"]
+        try: mapped=apply_mapping("procurement_notice",r,context={"computed":{"quality_score":q}}); m=mapped["record"]
+        except (MappingError,KeyError,TypeError,ValueError) as exc:
+            rejected+=1; record_disposition(db,run,"notice",rid,"rejected",f"mapping_error:{type(exc).__name__}",r); continue
         db.execute("insert or replace into procurement_notices values(?,?,?,?,?,?,?,?,?,?,?,?,?)",(m["notice_id"],m["project_id"],m["title"],m["country"],m["country_code"],m["category"],m["method"],m["publication_date"],m["deadline_date"],m["sector"],m["official_url"],m["raw_json"],m["quality_score"])); accepted+=1
-    for r in apayload.get("contract",[]):
+        notice_loaded+=1
+    for r in award_records:
         pid=norm_project(r.get("projectid")); rid=str(r.get("contr_id"));
-        if not pid: quarantined+=1; record_issue(db,run,"DQ-002","award",rid,"projectid",r.get("projectid")); continue
+        if not pid:
+            quarantined+=1; record_disposition(db,run,"award",rid,"quarantined","DQ-002",r)
+            record_issue(db,run,"DQ-002","award",rid,"projectid",r.get("projectid")); continue
         project_ids.add(pid)
         # The awards feed exposes an award ID but no public award-detail page.
         # Link to the official dataset rather than inventing a notice-style URL.
         url="https://financesone.worldbank.org/contract-awards-in-investment-project-financing-since-fy-2020/DS00005"
-        mapped=apply_mapping("contract_award",r,context={"constants":{"official_awards_url":url}}); m=mapped["record"]
+        try: mapped=apply_mapping("contract_award",r,context={"constants":{"official_awards_url":url}}); m=mapped["record"]
+        except (MappingError,KeyError,TypeError,ValueError) as exc:
+            rejected+=1; record_disposition(db,run,"award",rid,"rejected",f"mapping_error:{type(exc).__name__}",r); continue
         db.execute("insert or replace into contract_awards values(?,?,?,?,?,?,?,?,?,?)",(m["award_id"],m["project_id"],m["description"],m["country"],m["category"],m["supplier"],m["amount"],m["signed_date"],m["official_url"],m["raw_json"])); accepted+=1
+        award_loaded+=1
         # Awards include official project-level metadata. Materializing it here
         # keeps the bounded run fast; the separately validated Projects API is
         # the production enrichment adapter.
         db.execute("insert or ignore into projects values(?,?,?,?,?,?,?,?)",(pid,r.get("project_name"),r.get("countryshortname"),r.get("regionname"),",".join(r.get("mjsecname") or []),0,f"https://projects.worldbank.org/en/projects-operations/project-detail/{pid}",json.dumps({"source":"contract-awards","project_name":r.get("project_name")})))
-    for mapping_id,count in (("procurement_notice",notice_rows),("contract_award",award_rows)):
+    for mapping_id,count in (("procurement_notice",notice_loaded),("contract_award",award_loaded)):
         mapping=load_mapping(mapping_id)
         db.execute("insert or replace into mapping_executions values(?,?,?,?,?,?)",(run,mapping_id,mapping["version"],mapping["sha256"],utc_now(),count))
     db.commit(); build_curated(db)
-    rows=notice_rows+award_rows; completed=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
-    db.execute("update ingestion_runs set completed_at=?,status='completed',records_read=?,accepted=?,rejected=0,quarantined=?,checksum=?,schema_hash=? where run_id=?",(completed,rows,accepted,quarantined,checksum,schema_hash(npayload.get("data",[])),run)); db.commit(); return run
+    rows=len(notice_records)+len(award_records); balanced=rows==accepted+quarantined+rejected
+    completed=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
+    db.execute("update ingestion_runs set completed_at=?,status=?,records_read=?,accepted=?,rejected=?,quarantined=?,checksum=?,schema_hash=? where run_id=?",(completed,"completed" if balanced else "failed_accounting",rows,accepted,rejected,quarantined,checksum,schema_hash(notice_records+award_records),run)); db.commit()
+    create_migration_evidence(db,run,{"procurement_notices":len(notice_records),"contract_awards":len(award_records)},{"procurement_notices":notice_loaded,"contract_awards":award_loaded})
+    return run
 
 STOP_WORDS={"and","are","award","bank","contract","data","for","from","in","notice","of","on","project","procurement","record","records","the","to","world"}
 def tokenize(text): return re.findall(r"[a-z0-9]{2,}", (text or "").lower())

@@ -1,7 +1,7 @@
 import sqlite3
 import pytest
 from pathlib import Path
-from backend.app.pipeline import connect,norm_project,norm_date,vector,build_curated,search,create_review_case,update_review_case,get_review_case
+from backend.app.pipeline import connect,norm_project,norm_date,vector,build_curated,search,create_review_case,update_review_case,get_review_case,record_disposition,create_migration_evidence,get_migration_evidence
 from backend.app.mappings import apply_mapping, list_mappings, load_mapping
 def test_normalization():
     assert norm_project(" p123456 ")=="P123456" and norm_project("123") is None
@@ -63,3 +63,20 @@ def test_mapping_execution_returns_target_and_field_lineage():
     assert record["quality_score"]==1.0
     assert result["mapping_version"]=="1.1.0"
     assert {item["target"] for item in result["lineage"]}==set(record)
+
+def test_reconciliation_accounts_for_loaded_quarantined_and_rejected_records(tmp_path):
+    dbp=tmp_path/"t.db"; db=connect(dbp)
+    db.execute("insert into ingestion_runs values(?,?,?,?,?,?,?,?,?,?,?)",("run-1","test","2026-01-01", "2026-01-01","completed",5,3,1,1,"checksum","schema"))
+    for mapping_id in ("procurement_notice","contract_award"):
+        mapping=load_mapping(mapping_id)
+        db.execute("insert into mapping_executions values(?,?,?,?,?,?)",("run-1",mapping_id,mapping["version"],mapping["sha256"],"2026-01-01",1))
+    record_disposition(db,"run-1","notice","n-1","quarantined","DQ-001",{"id":"n-1"})
+    record_disposition(db,"run-1","award","a-1","rejected","mapping_error",{"id":"a-1"})
+    db.commit()
+    evidence=create_migration_evidence(db,"run-1",{"procurement_notices":3,"contract_awards":2},{"procurement_notices":2,"contract_awards":1})
+    assert evidence["records_read"]==evidence["loaded"]+evidence["quarantined"]+evidence["rejected"]
+    assert evidence["balance_delta"]==0
+    assert evidence["reconciliation_status"]=="balanced"
+    assert evidence["acceptance_status"]=="blocked"
+    assert len(evidence["evidence_hash"])==64
+    assert get_migration_evidence("run-1",dbp)["gates"][0]["passed"] is True
