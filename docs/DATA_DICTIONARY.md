@@ -11,5 +11,7 @@
 | `review_cases` | Current analyst decision state | validation result, status, priority, assignee, resolution, rationale, decision actor/time, retest state |
 | `review_events` | Append-only decision history | case, event type, actor, timestamp, prior/next status, note, structured metadata |
 | `procurement_features` | Analytics/ML-ready project features | counts, supplier count, award sum, missing ratio, linkage, quality score |
-| `document_chunks` | Retrieval corpus | chunk ID, record metadata, text, citation URL, embedding |
+| `document_chunks` | Operational retrieval staging | chunk ID, record metadata, text, citation URL |
+| `retrieval_documents` (PostgreSQL) | Semantic evidence index | chunk and record IDs, project, text, citation URL, country, JSON metadata, embedding model, pgvector embedding |
+| `retrieval_query_runs` (PostgreSQL) | Retrieval audit | query, filters, model, result count, latency, abstention, timestamp |
 | `retrieval_runs` | Retrieval observability | run ID, query, result count, latency, abstention |

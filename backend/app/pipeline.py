@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import hashlib, json, math, re, sqlite3, time, uuid
-from collections import Counter
+import hashlib, json, re, sqlite3, time, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
@@ -190,19 +189,6 @@ def ingest_sample(notice_rows=300, award_rows=300, db_path: Path = DB, fetcher=N
     create_migration_evidence(db,run,{"procurement_notices":len(notice_records),"contract_awards":len(award_records)},{"procurement_notices":notice_loaded,"contract_awards":award_loaded})
     return run
 
-STOP_WORDS={"and","are","award","bank","contract","data","for","from","in","notice","of","on","project","procurement","record","records","the","to","world"}
-def tokenize(text): return re.findall(r"[a-z0-9]{2,}", (text or "").lower())
-def distinctive_tokens(text): return {token for token in tokenize(text) if token not in STOP_WORDS}
-def vector(text, dims=256):
-    v=[0.0]*dims
-    for token,count in Counter(tokenize(text)).items():
-        # SHA-256 keeps the deterministic local embedding portable. The
-        # browser demo uses the identical first-four-byte bucket rule against
-        # the exported vectors from this verified SQLite index.
-        bucket=int.from_bytes(hashlib.sha256(token.encode()).digest()[:4],"big")%dims
-        v[bucket]+=1+math.log(count)
-    n=math.sqrt(sum(x*x for x in v)) or 1; return [x/n for x in v]
-
 def build_curated(db):
     db.execute("delete from procurement_features"); db.execute("delete from document_chunks")
     pids={r[0] for r in db.execute("select project_id from projects")}
@@ -217,21 +203,8 @@ def build_curated(db):
         for r in db.execute(f"select * from {table}"):
             text=f"{r[textcol]} {r['country'] if 'country' in r.keys() else ''} {r['sector'] if 'sector' in r.keys() else ''}"
             cid=hashlib.sha256(f"{rtype}:{r[idcol]}".encode()).hexdigest()[:20]
-            db.execute("insert or replace into document_chunks values(?,?,?,?,?,?,?,?)",(cid,rtype,str(r[idcol]),r["project_id"],text,r["official_url"],json.dumps({"country":r["country"] if "country" in r.keys() else None}),json.dumps(vector(text))))
+            db.execute("insert or replace into document_chunks values(?,?,?,?,?,?,?,?)",(cid,rtype,str(r[idcol]),r["project_id"],text,r["official_url"],json.dumps({"country":r["country"] if "country" in r.keys() else None}),"[]"))
     db.commit()
-
-def search(query, country=None, project_id=None, limit=8, db_path: Path=DB):
-    started=time.perf_counter(); db=connect(db_path); qv=vector(query); rows=db.execute("select * from document_chunks").fetchall(); out=[]
-    for r in rows:
-        md=json.loads(r["metadata"])
-        if country and country.lower() not in (md.get("country") or "").lower(): continue
-        if project_id and r["project_id"] != norm_project(project_id): continue
-        if not (distinctive_tokens(query) & distinctive_tokens(r["text"])): continue
-        ev=json.loads(r["embedding"]); score=sum(a*b for a,b in zip(qv,ev))
-        if score>0: out.append({"record_type":r["record_type"],"record_id":r["record_id"],"project_id":r["project_id"],"excerpt":r["text"][:360],"official_url":r["official_url"],"retrieval_score":round(score,4)})
-    out=sorted(out,key=lambda x:x["retrieval_score"],reverse=True)[:limit]; latency=(time.perf_counter()-started)*1000; rid=str(uuid.uuid4()); abstained=not out or out[0]["retrieval_score"]<0.12
-    db.execute("insert into retrieval_runs values(?,?,?,?,?,?)",(rid,query,datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),len(out),latency,int(abstained))); db.commit()
-    return {"run_id":rid,"query":query,"results":[] if abstained else out,"abstained":abstained,"message":"Insufficient evidence in the indexed prototype scope." if abstained else "Retrieved facts only; relevance score is ranking, not factual confidence.","latency_ms":round(latency,2)}
 
 REVIEW_STATUSES={"open","assigned","in_review","resolved","rejected"}
 REVIEW_RESOLUTIONS={"accept_exception","remediate","reject_record"}

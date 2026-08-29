@@ -3,7 +3,7 @@ import json
 import pytest
 from pathlib import Path
 import backend.app.pipeline as pipeline
-from backend.app.pipeline import connect,norm_project,norm_date,vector,build_curated,search,create_review_case,update_review_case,get_review_case,record_disposition,create_migration_evidence,get_migration_evidence,ingest_sample
+from backend.app.pipeline import connect,norm_project,norm_date,build_curated,create_review_case,update_review_case,get_review_case,record_disposition,create_migration_evidence,get_migration_evidence,ingest_sample
 from backend.app.mappings import MappingError, apply_mapping, list_mappings, load_mapping
 
 def notice(record_id="n-1",project_id="P100001",**overrides):
@@ -31,12 +31,6 @@ def test_idempotent_upsert_and_features(tmp_path):
     db.execute("insert or replace into procurement_notices values(?,?,?,?,?,?,?,?,?,?,?,?,?)",row);db.execute("insert or replace into procurement_notices values(?,?,?,?,?,?,?,?,?,?,?,?,?)",row);db.commit();build_curated(db)
     assert db.execute("select count(*) from procurement_notices").fetchone()[0]==1
     assert db.execute("select notice_count from procurement_features").fetchone()[0]==1
-def test_retrieval_and_abstention(tmp_path):
-    dbp=tmp_path/"t.db";db=connect(dbp);txt="digital infrastructure information systems Indonesia"
-    db.execute("insert into document_chunks values(?,?,?,?,?,?,?,?)",("c","notice","1","P123456",txt,"https://example.org",'{"country":"Indonesia"}',__import__('json').dumps(vector(txt))));db.commit()
-    assert search("digital infrastructure",country="Indonesia",db_path=dbp)["results"]
-    assert search("xylophone nebula",db_path=dbp)["abstained"]
-    assert search("nuclear procurement on Mars",db_path=dbp)["abstained"]
 def test_review_decision_creates_immutable_audit_events(tmp_path):
     dbp=tmp_path/"t.db";db=connect(dbp)
     db.execute("insert into validation_results(run_id,control_id,severity,result,record_type,record_id,source_field,original_value,normalized_value,recommended_handling) values(?,?,?,?,?,?,?,?,?,?)",("run-1","DQ-008","warning","Potential duplicate content","notice","459873","bid_description","Software","","Compare official sources"));db.commit()

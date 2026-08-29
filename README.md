@@ -6,7 +6,7 @@ An independent, testable prototype that migrates public World Bank procurement n
 
 ## Executive summary
 
-The workbench demonstrates the core data-engineering responsibilities described for an AI Data Engineer in fiduciary procurement operations: heterogeneous API ingestion, pagination-ready and idempotent processing, source preservation, schema checks, normalization, quarantine, explicit quality controls, analyst decisions with append-only audit events, project-level integration, feature engineering, deterministic embeddings, filtered retrieval, citation construction, abstention, APIs, tests, and technical documentation.
+The workbench demonstrates the core data-engineering responsibilities described for an AI Data Engineer in fiduciary procurement operations: heterogeneous API ingestion, pagination-ready and idempotent processing, source preservation, schema checks, normalization, quarantine, explicit quality controls, analyst decisions with append-only audit events, project-level integration, feature engineering, model-backed semantic retrieval, citation construction, abstention, APIs, tests, and technical documentation.
 
 The verified prototype run uses a bounded sample of **300 procurement notices and 300 contract awards**, then retrieves project metadata for observed project IDs. The source API reported **412,871 procurement notices on 5 August 2026**. The code supports bounded runs up to the official API's documented 1,000-record page size; a production scheduler would iterate pages and checkpoints rather than fit all source records into a free-tier demo.
 
@@ -34,8 +34,8 @@ flowchart TD
   C -->|valid| D[Curated SQL tables]
   C -->|ambiguous| E[Quarantine and review]
   D --> F[Project features]
-  D --> G[Deterministic embeddings]
-  G --> H[Filtered evidence retrieval]
+  D --> G[Sentence Transformer embeddings]
+  G --> H[PostgreSQL and pgvector retrieval]
   H --> I[Citations or abstention]
 ```
 
@@ -69,7 +69,8 @@ See [data dictionary](docs/DATA_DICTIONARY.md) and [control catalog](docs/CONTRO
 - quality issue and quarantine ledgers
 - review cases, accountable dispositions, retest state, and append-only audit events
 - curated rebuild and feature generation
-- deterministic local embedding generation
+- versioned Sentence Transformers embedding generation
+- PostgreSQL/pgvector storage with HNSW cosine indexing
 - retrieval-run logging and abstention
 
 ### Feature dataset
@@ -84,7 +85,7 @@ Quality controls are **review signals, not fraud labels**. Ambiguous values are 
 
 ## Retrieval methodology and safeguards
 
-Text from notices, awards, and projects is tokenized and mapped to a reproducible 256-dimensional hashing vector. The browser demo searches all 759 indexed records exported from the verified SQLite database using the same SHA-256 bucket mapping, cosine ranking, lexical gate, and abstention threshold as the FastAPI backend. This avoids a hosted key and keeps the prototype deterministic without substituting hard-coded results. PostgreSQL + pgvector and a versioned Sentence Transformers model are the production path.
+Text from notices, awards, and projects is embedded with the pinned `sentence-transformers/all-MiniLM-L6-v2` model into 384-dimensional normalized vectors. PostgreSQL stores the evidence and pgvector performs cosine-distance ranking through an HNSW index. Country and project filters execute in SQL, low-similarity queries abstain, and each query records its model version, filters, result count, latency, and abstention state. The browser calls the FastAPI service directly; no vectors or substitute retrieval algorithm are shipped to the client.
 
 Safeguards:
 
@@ -120,13 +121,18 @@ A final disposition requires a named actor and rationale. Each transition append
 
 ## Local setup (macOS and Linux)
 
-Requires Python 3.11+ and Node 22.13+.
+Requires Python 3.11+, Node 22.13+, and Docker.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
+cp .env.example .env
+set -a && source .env && set +a
+docker compose up -d postgres
 python -m backend.app.cli ingest-sample --notices 300 --awards 300
+python -m backend.app.cli retrieval-migrate
+python -m backend.app.cli retrieval-index
 uvicorn backend.app.main:app --reload
 ```
 
@@ -144,19 +150,36 @@ pytest -q
 npm test
 ```
 
-`npm run build` refreshes `public/data/retrieval-corpus.json` from the verified SQLite index before compiling the site, keeping the browser evidence search aligned with the backend corpus.
+Run the opt-in real PostgreSQL/model round-trip after the model has downloaded:
+
+```bash
+RUN_PGVECTOR_INTEGRATION=1 pytest -q backend/tests/test_retrieval_integration.py
+```
+
+Verify the service:
+
+```bash
+curl http://localhost:8000/retrieval/health
+curl -X POST http://localhost:8000/procurement/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"digital government infrastructure","country":"Madagascar","limit":5}'
+```
+
+`npm run build` refreshes only aggregate country counts for the map. Retrieval documents and embeddings remain server-side in PostgreSQL.
 
 No Linux-only locking utility is used.
 
 ## Environment variables
 
-None are required for the verified SQLite + deterministic retrieval mode. A production deployment would use:
+Retrieval requires:
 
 ```text
-DATABASE_URL=postgresql://...
-RAW_STORAGE_BUCKET=...
-EMBEDDING_PROVIDER=local
-EMBEDDING_MODEL=versioned-model-name
+DATABASE_URL=postgresql://procurement:procurement_local@localhost:5432/procurement
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+EMBEDDING_DIMENSIONS=384
+RETRIEVAL_MINIMUM_SCORE=0.25
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
 No secrets belong in source control.
@@ -183,20 +206,20 @@ The transparent retrieval evaluation is intentionally small and prototype-scoped
 - Bounded sample only; not full-source coverage.
 - Contract Awards is not a complete list of all awards.
 - Documents API is validated but is not part of the counted run.
-- Hashing embeddings favor exact/near-exact vocabulary and are not multilingual semantic embeddings.
-- Prototype uses SQLite; production should use PostgreSQL, pgvector, Alembic, orchestration, object storage, and monitoring.
+- The current English-oriented embedding model is not a substitute for a multilingual retrieval evaluation.
+- Operational workflow state remains in SQLite; retrieval is isolated in PostgreSQL/pgvector. Production still needs managed migrations, orchestration, object storage, and monitoring.
 - Manual evaluation labels are small and authored for this prototype.
 - Official records may themselves contain missing or inconsistent metadata.
 
 ## Deployment
 
-No external deployment or GitHub push has been performed. Recommended architecture: frontend on Vercel; FastAPI on Railway; PostgreSQL + pgvector on Neon/Supabase/Railway; object storage for raw snapshots. Run the documented tests, set environment variables, execute a bounded seed, then deploy services separately. The public UI must disclose the exact processed scope.
+No external deployment or GitHub push has been performed. Recommended architecture: frontend on Vercel; the FastAPI/model service on Railway or another container host; managed PostgreSQL + pgvector on Neon, Supabase, or Railway; object storage for raw snapshots. The frontend reaches retrieval over HTTPS, while PostgreSQL remains private to the API service. Run the documented tests, set environment variables, execute a bounded seed, then deploy services separately. The public UI must disclose the exact processed scope.
 
 ## Production roadmap
 
 1. Complete historical page iteration with checkpoint resume and scheduled incrementals.
 2. Add Documents & Reports ingestion and text extraction.
-3. Move to PostgreSQL + pgvector with Alembic migrations.
+3. Add managed migration orchestration and embedding backfill checkpoints.
 4. Add an embedding-model registry and multilingual retrieval.
 5. Expand adjudicated retrieval labels and automated drift monitoring.
 6. Add enterprise identity, role-based approvals, and durable browser-to-API integration for reviewer actions.

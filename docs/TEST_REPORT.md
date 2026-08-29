@@ -7,6 +7,6 @@
 | Browser interaction | supported query + unsupported query | 8 ranked records; unsupported query abstained; zero horizontal overflow |
 | Retrieval evaluation | `python3 scripts/evaluate.py` | Completed; six-query report recorded |
 
-Covered behaviors: project/date normalization, idempotent upserts, feature generation, deterministic embeddings, 759-record browser and backend retrieval, country metadata filter, unsupported-query abstention, reviewer assignment, lifecycle transition, mandatory rationale, final disposition, audit-event ordering, production frontend compilation, Sites artifact shape, and rendered HTML response.
+Covered behaviors: project/date normalization, idempotent upserts, feature generation, all eight quality controls, quarantine and rejection accounting, source and mapping failures, pgvector migration shape, model-versioned indexing, semantic score abstention, country/project SQL filters, embedding-dimension enforcement, retrieval health, reviewer assignment, lifecycle transition, mandatory rationale, final disposition, audit-event ordering, production frontend compilation, Sites artifact shape, and rendered HTML response.
 
 The current suite is intentionally prototype-sized. It does not yet simulate every network retry, a full 412,871-row run, or a hosted PostgreSQL migration.

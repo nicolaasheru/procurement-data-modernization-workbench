@@ -29,17 +29,16 @@ type ReviewCase = {
   rationale?: string;
   events: Event[];
 };
-type CorpusRecord = {
+type SearchResult = {
   chunk_id: string;
   record_type: string;
   record_id: string;
   project_id: string;
   text: string;
   official_url: string;
-  metadata: { country?: string | null };
-  embedding: number[];
+  country?: string | null;
+  retrieval_score: number;
 };
-type SearchResult = CorpusRecord & { score: number };
 type ProjectContext = {
   title?: string;
   sector?: string;
@@ -62,6 +61,10 @@ type MappingField = {
   handling: string;
   required: boolean;
 };
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
+  "http://localhost:8000";
 
 const noticeMappingVersions: Record<
   string,
@@ -246,20 +249,6 @@ const casesSeed: ReviewCase[] = [
   },
 ];
 
-const tokenize = (text: string) =>
-  text.toLowerCase().match(/[a-z0-9]{2,}/g) || [];
-function vector(text: string, vocabulary: Record<string, number>) {
-  const counts = new Map<string, number>();
-  tokenize(text).forEach((t) => counts.set(t, (counts.get(t) || 0) + 1));
-  const out = Array(256).fill(0);
-  for (const [token, count] of counts) {
-    const bucket = vocabulary[token];
-    if (bucket !== undefined) out[bucket] += 1 + Math.log(count);
-  }
-  const norm = Math.sqrt(out.reduce((s, v) => s + v * v, 0)) || 1;
-  return out.map((v) => v / norm);
-}
-
 export default function Workbench() {
   const [view, setView] = useState<View>("Runs");
   const [cases, setCases] = useState<ReviewCase[]>(casesSeed);
@@ -416,24 +405,18 @@ export default function Workbench() {
     if (query.trim().length < 3) return;
     setSearchStatus("loading");
     try {
-      const response = await fetch("/data/retrieval-corpus.json");
-      const corpus = (await response.json()) as {
-        vocabulary: Record<string, number>;
-        records: CorpusRecord[];
+      const response = await fetch(`${API_BASE}/procurement/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim(), limit: 6 }),
+      });
+      if (!response.ok) throw new Error("Retrieval service unavailable");
+      const payload = (await response.json()) as {
+        results: SearchResult[];
+        abstained: boolean;
       };
-      const qv = vector(query, corpus.vocabulary);
-      const terms = new Set(tokenize(query));
-      const ranked = corpus.records
-        .filter((r) => tokenize(r.text).some((t) => terms.has(t)))
-        .map((r) => ({
-          ...r,
-          score: qv.reduce((s, v, i) => s + v * (r.embedding[i] || 0), 0),
-        }))
-        .filter((r) => r.score >= 0.12)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 6);
-      setResults(ranked);
-      setSearchStatus(ranked.length ? "done" : "empty");
+      setResults(payload.results);
+      setSearchStatus(payload.abstained ? "empty" : "done");
     } catch {
       setSearchStatus("error");
     }
@@ -690,8 +673,8 @@ export default function Workbench() {
               <button onClick={search}>Search</button>
             </div>
             <p className="search-help">
-              Results come from 759 indexed public records. Unsupported queries
-              return no evidence.
+              Semantic results come from the versioned procurement evidence
+              index. Unsupported queries return no evidence.
             </p>
             {searchStatus === "idle" && (
               <div className="drawer-empty">
@@ -720,8 +703,8 @@ export default function Workbench() {
                     </span>
                     <b>{r.text}</b>
                     <small>
-                      {r.metadata.country || "Country unavailable"} · score{" "}
-                      {r.score.toFixed(3)}
+                      {r.country || "Country unavailable"} · similarity{" "}
+                      {r.retrieval_score.toFixed(3)}
                     </small>
                   </a>
                 ))}
@@ -1188,9 +1171,9 @@ function GlobalRecordMap() {
     [geography],
   );
   useEffect(() => {
-    fetch("/data/retrieval-corpus.json")
+    fetch("/data/geography-counts.json")
       .then((response) => response.json())
-      .then((corpus) => {
+      .then((payload: { countries: Record<string, number> }) => {
         const atlasByName = new Map<string, string>();
         geography.forEach((country) => {
           const name = String(country.properties?.name || "").toLowerCase();
@@ -1212,11 +1195,11 @@ function GlobalRecordMap() {
           tanzania: "tanzania",
         };
         const counts = new Map<string, number>();
-        (corpus.records as CorpusRecord[]).forEach((record) => {
-          const label = record.metadata.country?.trim().toLowerCase() || "";
+        Object.entries(payload.countries).forEach(([countryName, recordCount]) => {
+          const label = countryName.trim().toLowerCase();
           const atlasName = aliases[label] || label;
           const id = atlasByName.get(atlasName);
-          if (id) counts.set(id, (counts.get(id) || 0) + 1);
+          if (id) counts.set(id, (counts.get(id) || 0) + recordCount);
         });
         setRecordCounts(counts);
       })

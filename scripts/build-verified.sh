@@ -18,8 +18,8 @@ if [[ ! -x "${vinext}" ]]; then
   exit 69
 fi
 
-echo "Refreshing the browser retrieval corpus from the verified SQLite index..."
-python3 "${SITES_PROJECT_ROOT}/scripts/export_retrieval_corpus.py"
+echo "Refreshing aggregate geography counts from the verified operational store..."
+python3 "${SITES_PROJECT_ROOT}/scripts/export_geography_counts.py"
 
 echo "Running bounded vinext build..."
 timeout \

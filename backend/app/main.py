@@ -1,12 +1,17 @@
 from pathlib import Path
+import os
 import sqlite3
 from typing import Optional
 from fastapi import FastAPI, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from .pipeline import DB, CONTROLS, connect, ingest_sample, search, create_review_case, update_review_case, get_review_case, get_migration_evidence
+from .pipeline import DB, CONTROLS, connect, ingest_sample, create_review_case, update_review_case, get_review_case, get_migration_evidence
 from .mappings import MappingError, list_mappings, load_mapping
+from .retrieval import PgVectorRetrieval, RetrievalConfigurationError
 
 app=FastAPI(title="Procurement Data Modernization Workbench API",version="0.1.0")
+origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS","http://localhost:3000,http://localhost:5173").split(",") if origin.strip()]
+app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=["GET","POST","PATCH"],allow_headers=["Content-Type"])
 class SearchRequest(BaseModel):
     query: str = Field(min_length=3,max_length=500)
     country: Optional[str]=None
@@ -27,7 +32,11 @@ class ReviewUpdate(BaseModel):
 
 def rows(sql,args=()): return [dict(r) for r in connect().execute(sql,args).fetchall()]
 @app.get("/health")
-def health(): return {"status":"ok","database":DB.exists(),"mode":"deterministic-retrieval"}
+def health(): return {"status":"ok","operational_database":DB.exists(),"retrieval":"postgresql+pgvector"}
+@app.get("/retrieval/health")
+def retrieval_health():
+    try: return PgVectorRetrieval().health()
+    except RetrievalConfigurationError as exc: raise HTTPException(503,str(exc))
 @app.get("/ingestion/runs")
 def runs(limit:int=Query(20,ge=1,le=100)): return rows("select * from ingestion_runs order by started_at desc limit ?",(limit,))
 @app.get("/mappings")
@@ -64,7 +73,9 @@ def notices(country:Optional[str]=None,project_id:Optional[str]=None,limit:int=Q
     where=" where "+" and ".join(clauses) if clauses else ""; args += [limit,offset]
     return rows(f"select * from procurement_notices{where} order by publication_date desc limit ? offset ?",args)
 @app.post("/procurement/search")
-def retrieval(req:SearchRequest): return search(req.query,req.country,req.project_id,req.limit)
+def retrieval(req:SearchRequest):
+    try: return PgVectorRetrieval().search(req.query,req.country,req.project_id,req.limit)
+    except RetrievalConfigurationError as exc: raise HTTPException(503,str(exc))
 @app.post("/ingestion/sample",status_code=202)
 def ingestion(notices:int=Query(300,ge=10,le=1000),awards:int=Query(300,ge=10,le=1000)): return {"run_id":ingest_sample(notices,awards),"status":"completed"}
 @app.get("/reviews")
