@@ -124,16 +124,21 @@ def get_migration_evidence(run, db_path: Path = DB):
     db=connect(db_path); row=db.execute("select evidence_json from migration_evidence where run_id=?",(run,)).fetchone()
     return json.loads(row[0]) if row else None
 
-def ingest_sample(notice_rows=300, award_rows=300, db_path: Path = DB):
+def ingest_sample(notice_rows=300, award_rows=300, db_path: Path = DB, fetcher=None, raw_dir: Path | None = None):
     db=connect(db_path); run=str(uuid.uuid4()); started=datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
     db.execute("insert into ingestion_runs values(?,?,?,?,?,?,?,?,?,?,?)",(run,"official-world-bank-sample",started,None,"running",0,0,0,0,None,None)); db.commit()
-    meta=fetch_json(NOTICE_API,{"datasetId":"DS00979","resourceId":"RS00909","top":1,"type":"json"})
-    total=int(meta["count"]); skip=max(0,total-notice_rows)
-    npayload=fetch_json(NOTICE_API,{"datasetId":"DS00979","resourceId":"RS00909","top":notice_rows,"skip":skip,"type":"json"})
-    apayload=fetch_json(AWARD_API,{"format":"json","rows":award_rows,"os":0})
+    fetcher=fetcher or fetch_json; raw_dir=raw_dir or RAW
+    try:
+        meta=fetcher(NOTICE_API,{"datasetId":"DS00979","resourceId":"RS00909","top":1,"type":"json"})
+        total=int(meta["count"]); skip=max(0,total-notice_rows)
+        npayload=fetcher(NOTICE_API,{"datasetId":"DS00979","resourceId":"RS00909","top":notice_rows,"skip":skip,"type":"json"})
+        apayload=fetcher(AWARD_API,{"format":"json","rows":award_rows,"os":0})
+    except Exception:
+        db.execute("update ingestion_runs set completed_at=?,status='failed_source' where run_id=?",(utc_now(),run)); db.commit()
+        raise
     raw={"retrieved_at":started,"sources":[NOTICE_API,AWARD_API],"notices":npayload,"awards":apayload}
     raw_bytes=json.dumps(raw,ensure_ascii=False,sort_keys=True).encode(); checksum=hashlib.sha256(raw_bytes).hexdigest()
-    RAW.mkdir(parents=True,exist_ok=True); (RAW/f"{run}.json").write_bytes(raw_bytes)
+    raw_dir.mkdir(parents=True,exist_ok=True); (raw_dir/f"{run}.json").write_bytes(raw_bytes)
     notice_records=npayload.get("data",[]); award_records=apayload.get("contract",[])
     accepted=quarantined=rejected=0; notice_loaded=award_loaded=0; project_ids=set(); seen_content=set()
     for r in notice_records:
