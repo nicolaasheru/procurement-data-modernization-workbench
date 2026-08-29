@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { geoNaturalEarth1, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
+import type { FeatureCollection } from "geojson";
 import worldCountries from "world-atlas/countries-110m.json";
 
 type View = "Runs" | "Review queue" | "Release readiness";
@@ -1186,8 +1187,9 @@ function GlobalRecordMap() {
   const geography = useMemo(() => {
     const collection = feature(
       worldCountries as never,
-      (worldCountries as { objects: { countries: never } }).objects.countries,
-    );
+      (worldCountries as unknown as { objects: { countries: never } }).objects
+        .countries,
+    ) as unknown as FeatureCollection;
     return collection.features;
   }, []);
   const path = useMemo(
